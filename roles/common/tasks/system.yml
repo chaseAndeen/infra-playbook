@@ -15,7 +15,7 @@
     content: |
       Types: deb
       URIs: http://download.proxmox.com/debian/pve
-      Suites: {{ proxmox_debian_release }} 
+      Suites: {{ proxmox_debian_release }}
       Components: pve-no-subscription
       Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
     owner: root
@@ -24,7 +24,7 @@
 
 - name: Update apt cache and upgrade system
   ansible.builtin.apt:
-    update_cache: yes
+    update_cache: true
     upgrade: dist
 
 - name: Install unattended-upgrades packages
@@ -37,6 +37,7 @@
 - name: Enable unattended upgrades
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/20auto-upgrades
+    mode: '0644'
     content: |
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";

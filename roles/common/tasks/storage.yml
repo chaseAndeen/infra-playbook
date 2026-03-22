@@ -1,45 +1,44 @@
 ---
-- name: "Storage | Install ZFS tools"
+- name: Storage | Install ZFS tools
   ansible.builtin.apt:
     name: zfsutils-linux
     state: present
 
-- name: "Storage | NVMe ZFS + Proxmox storage"
+- name: Storage | NVMe ZFS and Proxmox storage
   when: pve_nvme_provision | bool
   block:
-
-    - name: "Storage | Check if ZFS pool exists"
+    - name: Storage | Check if ZFS pool exists
       ansible.builtin.command: "zpool list -H -o name {{ pve_zfs_pool }}"
       register: zpool_exists
       changed_when: false
       failed_when: false
 
-    - name: "Storage | Wipe disk signatures on {{ pve_zfs_device }}"
+    - name: Storage | Wipe disk signatures
       ansible.builtin.command: "wipefs -a {{ pve_zfs_device }}"
       when: zpool_exists.rc != 0
       changed_when: true
 
-    - name: "Storage | Create ZFS pool {{ pve_zfs_pool }} (DESTRUCTIVE)"
+    - name: Storage | Create ZFS pool (DESTRUCTIVE)
       ansible.builtin.command: >
-        zpool create -f -o ashift=12 
-        -O compression=lz4 
-        -O xattr=sa 
-        -O atime=off 
+        zpool create -f -o ashift=12
+        -O compression=lz4
+        -O xattr=sa
+        -O atime=off
         {{ pve_zfs_pool }} {{ pve_zfs_device }}
       when: zpool_exists.rc != 0
       changed_when: true
 
-    - name: "Storage | Enable autotrim"
+    - name: Storage | Enable autotrim
       ansible.builtin.command: "zpool set autotrim=on {{ pve_zfs_pool }}"
       changed_when: false
 
-    - name: "Storage | Check if Proxmox storage exists"
+    - name: Storage | Check if Proxmox storage exists
       ansible.builtin.command: "pvesm status --storage {{ pve_nvme_storage_id }}"
       register: pve_storage_exists
       changed_when: false
       failed_when: false
 
-    - name: "Storage | Create Proxmox ZFS storage"
+    - name: Storage | Create Proxmox ZFS storage
       ansible.builtin.command: >
         pvesm add zfspool {{ pve_nvme_storage_id }}
         --pool {{ pve_zfs_pool }}
@@ -48,15 +47,18 @@
       when: pve_storage_exists.rc != 0
       changed_when: true
 
-    - name: "Storage | Check if local-lvm is active"
-      ansible.builtin.shell: "pvesm status --storage local-lvm"
+    - name: Storage | Check if local-lvm is active
+      ansible.builtin.shell:
+        cmd: "pvesm status --storage local-lvm"
+        executable: /bin/bash
       register: local_lvm_status
       failed_when: false
       changed_when: false
 
-    - name: "Storage | Disable local-lvm"
+    - name: Storage | Disable local-lvm
       ansible.builtin.command: "pvesm set local-lvm --disable 1"
-      when: 
-      - local_lvm_status.rc == 0
-      - "'inactive' not in local_lvm_status.stdout"
+      when:
+        - local_lvm_status.rc == 0
+        - "'inactive' not in local_lvm_status.stdout"
       register: disable_result
+      changed_when: disable_result.rc == 0
