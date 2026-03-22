@@ -1,0 +1,34 @@
+---
+- name: PBS | Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: PBS | Set UFW default deny inbound
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+- name: PBS | Allow SSH from management CIDRs
+  community.general.ufw:
+    rule: allow
+    port: "{{ proxmox_ssh_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: PBS | Allow PBS web UI and backup protocol from management CIDRs
+  community.general.ufw:
+    rule: allow
+    port: "8007"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: PBS | Allow PBS backup protocol from Proxmox node subnet
+  community.general.ufw:
+    rule: allow
+    port: "8007"
+    proto: tcp
+    src: "{{ pve_network_cidr }}"

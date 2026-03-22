@@ -1,0 +1,59 @@
+---
+- name: OIDC Teleport | Check if Teleport client_id is seeded in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/oidc/teleport/client_id"
+    --profile {{ aws_profile }}
+    --region {{ aws_region }}
+  register: teleport_ssm_check
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: OIDC Teleport | Skip (Teleport not yet deployed)
+  ansible.builtin.debug:
+    msg: >
+      Teleport SSM parameters not found — skipping.
+      Seed /infra/oidc/teleport/client_id and /infra/oidc/teleport/client_secret,
+      then re-run with --tags oidc_teleport.
+  when: teleport_ssm_check.rc != 0
+
+- name: OIDC Teleport | Check existing PVE realms
+  ansible.builtin.command: pveum realm list --output-format json
+  register: pve_realms
+  changed_when: false
+  when: teleport_ssm_check.rc == 0
+
+- name: OIDC Teleport | Add Teleport OIDC realm
+  ansible.builtin.command: >
+    pveum realm add {{ teleport_realm_name }}
+    --type openid
+    --issuer-url {{ teleport_issuer_url }}
+    --client-id {{ teleport_client_id }}
+    --client-key {{ teleport_client_secret }}
+    --username-claim username
+    --scopes "profile,email"
+    --autocreate 1
+    --comment "Teleport OIDC (primary)"
+  no_log: true
+  register: teleport_realm_add
+  changed_when: teleport_realm_add.rc == 0
+  failed_when:
+    - teleport_realm_add.rc != 0
+    - "'already exists' not in teleport_realm_add.stderr"
+  when:
+    - teleport_ssm_check.rc == 0
+    - teleport_realm_name not in (pve_realms.stdout | from_json | map(attribute='realm') | list)
+
+- name: OIDC Teleport | Grant admin user Administrator via Teleport realm
+  ansible.builtin.command: >
+    pveum acl modify /
+    --user {{ proxmox_user }}@{{ teleport_realm_name }}
+    --role Administrator
+  register: teleport_acl
+  changed_when: teleport_acl.rc == 0
+  failed_when:
+    - teleport_acl.rc != 0
+    - "'already exists' not in teleport_acl.stderr"
+  when: teleport_ssm_check.rc == 0

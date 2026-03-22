@@ -1,0 +1,72 @@
+---
+- name: ACME | Check current certificate status
+  ansible.builtin.shell: "pvenode cert info | grep -q 'Let.s Encrypt'"
+  register: cert_check
+  failed_when: false
+  changed_when: false
+
+- name: ACME | Verify Cloudflare API connectivity
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_token }}"
+      Content-Type: application/json
+    status_code: 200
+  when: cert_check.rc != 0
+
+- name: ACME | Create temporary Cloudflare data file
+  ansible.builtin.copy:
+    dest: /tmp/cf_acme_data
+    content: |
+      CF_Token={{ cloudflare_token }}
+      CF_Zone_ID={{ cloudflare_zone_id }}
+    mode: '0600'
+  no_log: true
+  when: cert_check.rc != 0
+
+- name: ACME | Register Cloudflare ACME plugin
+  ansible.builtin.shell:
+    cmd: |
+      pvenode acme plugin remove cloudflare || true
+      pvenode acme plugin add dns cloudflare --api cf --data /tmp/cf_acme_data --validation-delay 30
+  when: cert_check.rc != 0
+  register: plugin_add
+  failed_when:
+    - plugin_add.rc != 0
+    - "'already exists' not in plugin_add.stderr"
+
+- name: ACME | Remove temporary Cloudflare data file
+  ansible.builtin.file:
+    path: /tmp/cf_acme_data
+    state: absent
+  when: cert_check.rc != 0
+
+- name: ACME | Register ACME account
+  ansible.builtin.shell:
+    cmd: 'echo "y" | pvenode acme account register default {{ cert_email }} --directory https://acme-v02.api.letsencrypt.org/directory'
+  args:
+    creates: /etc/pve/priv/acme/default
+  no_log: true
+  when: cert_check.rc != 0
+
+- name: ACME | Add domain configuration
+  ansible.builtin.shell:
+    cmd: "pvenode config set --acmedomain0 domain={{ cert_domain }},plugin=cloudflare"
+  when: cert_check.rc != 0
+
+- name: ACME | Order certificate
+  ansible.builtin.shell:
+    cmd: "pvenode acme cert order"
+  environment:
+    LC_ALL: "C.UTF-8"
+    LANG: "C.UTF-8"
+  register: order_out
+  async: 300
+  poll: 5
+  when: cert_check.rc != 0
+  failed_when:
+    - "order_out.rc != 0"
+    - "'already valid' not in order_out.stdout"
+    - "'TASK ERROR' in order_out.stderr"
+  notify: Restart PVE Proxy

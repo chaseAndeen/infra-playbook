@@ -1,0 +1,5 @@
+datastore: {{ pbs_datastore_name }}
+	path {{ pbs_datastore_path }}
+	notification-mode notification-system
+	verify-new true
+	gc-schedule {{ pbs_gc_schedule }}

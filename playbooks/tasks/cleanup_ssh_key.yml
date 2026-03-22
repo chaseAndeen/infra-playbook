@@ -1,0 +1,8 @@
+---
+- name: SSH Key | Remove temp private key
+  ansible.builtin.file:
+    path: "/tmp/.ansible_ssh_key_{{ inventory_hostname }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  no_log: true

@@ -1,0 +1,115 @@
+---
+- name: Bootstrap | Fix apt repos and install sudo
+  block:
+    - name: Bootstrap | Remove enterprise repo
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/pve-enterprise.sources
+        state: absent
+
+    - name: Bootstrap | Remove ceph repo
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/ceph.sources
+        state: absent
+
+    - name: Bootstrap | Add no-subscription repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.sources
+        content: |
+          Types: deb
+          URIs: http://download.proxmox.com/debian/pve
+          Suites: {{ proxmox_debian_release }}
+          Components: pve-no-subscription
+          Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Bootstrap | Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Bootstrap | Install sudo
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+
+- name: Bootstrap | Admin user account
+  block:
+    - name: Bootstrap | Ensure admin user exists
+      ansible.builtin.user:
+        name: "{{ proxmox_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+
+    - name: Bootstrap | Install admin user authorized key
+      ansible.posix.authorized_key:
+        user: "{{ proxmox_user }}"
+        state: present
+        key: "{{ admin_public_key }}"
+
+    - name: Bootstrap | Allow admin user sudo with password
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ proxmox_user }}"
+        content: |
+          {{ proxmox_user }} ALL=(ALL) ALL
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+
+- name: Bootstrap | Ansible service account
+  block:
+    - name: Bootstrap | Ensure ansible user exists
+      ansible.builtin.user:
+        name: "{{ ansible_service_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+
+    - name: Bootstrap | Install ansible authorized key
+      ansible.posix.authorized_key:
+        user: "{{ ansible_service_user }}"
+        state: present
+        key: "{{ ansible_public_key }}"
+
+    - name: Bootstrap | Allow ansible passwordless sudo
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ ansible_service_user }}"
+        content: |
+          {{ ansible_service_user }} ALL=(ALL) NOPASSWD:ALL
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+
+- name: Bootstrap | SSH port transition
+  block:
+    - name: Bootstrap | Set SSH port
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-ports.conf
+        content: |
+          Port {{ proxmox_ssh_port }}
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart ssh
+
+    - name: Bootstrap | Apply SSH restart now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Bootstrap | Wait for SSH on new port
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ proxmox_ssh_port }}"
+        timeout: 30
+
+    - name: Bootstrap | Switch Ansible to new port
+      ansible.builtin.set_fact:
+        ansible_port: "{{ proxmox_ssh_port }}"
+
+    - name: Bootstrap | Confirm Ansible can reconnect
+      ansible.builtin.wait_for_connection:
+        timeout: 30

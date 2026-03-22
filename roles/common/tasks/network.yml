@@ -1,0 +1,145 @@
+---
+- name: Check current certificate status
+  ansible.builtin.shell: "pvenode cert info | grep -q '{{ cert_domain }}'"
+  register: cert_check
+  failed_when: false
+  changed_when: false
+
+- name: Verify Cloudflare API Connectivity
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_token }}"
+      Content-Type: application/json
+    status_code: 200
+  when: cert_check.rc != 0
+
+- name: Create temporary ACME data file
+  ansible.builtin.copy:
+    dest: /tmp/cf_acme_data
+    content: |
+      CF_Token={{ cloudflare_token }}
+      CF_Zone_ID={{ cloudflare_zone_id }}
+    mode: '0600'
+  no_log: true
+  when: cert_check.rc != 0
+
+- name: Register Cloudflare ACME plugin
+  ansible.builtin.shell:
+    cmd: |
+      pvenode acme plugin remove cloudflare || true
+      pvenode acme plugin add dns cloudflare --api cf --data /tmp/cf_acme_data --validation-delay 30
+  when: cert_check.rc != 0
+  register: plugin_add
+  failed_when:
+    - plugin_add.rc != 0
+    - "'already exists' not in plugin_add.stderr"
+
+- name: Remove temporary ACME data file
+  ansible.builtin.file:
+    path: /tmp/cf_acme_data
+    state: absent
+  when: cert_check.rc != 0
+
+- name: Register ACME account
+  ansible.builtin.shell:
+    cmd: 'echo "y" | pvenode acme account register default {{ cert_email }} --directory https://acme-v02.api.letsencrypt.org/directory'
+  args:
+    creates: /etc/pve/priv/acme/default
+  no_log: true
+  when: cert_check.rc != 0
+
+- name: Add ACME domain configuration
+  ansible.builtin.shell:
+    cmd: "pvenode config set --acmedomain0 domain={{ cert_domain }},plugin=cloudflare"
+  when: cert_check.rc != 0
+
+- name: Order ACME certificate
+  ansible.builtin.shell:
+    cmd: "pvenode acme cert order"
+  environment:
+    LC_ALL: "C.UTF-8"
+    LANG: "C.UTF-8"
+  register: order_out
+  async: 300
+  poll: 5
+  when: cert_check.rc != 0
+  failed_when:
+    - "order_out.rc != 0"
+    - "'already valid' not in order_out.stdout"
+    - "'TASK ERROR' in order_out.stderr"
+  notify: Restart PVE Proxy
+
+- name: Validate inputs (prevent self-inflicted lockout)
+  ansible.builtin.assert:
+    that:
+      - mgmt_cidrs is defined
+      - mgmt_cidrs | length > 0
+      - proxmox_gui_port | int > 0
+      - proxmox_ssh_port | int > 0
+    fail_msg: >
+      mgmt_cidrs must be set to at least one CIDR (your management network),
+      and ports must be valid integers.
+
+- name: Render cluster.fw content
+  ansible.builtin.set_fact:
+    cluster_fw_rendered: "{{ (lookup('template', 'cluster.fw.j2') | regex_replace('\\r\\n', '\n') | regex_replace('\\r', '\n')).rstrip() ~ '\n' }}"
+
+- name: Read current cluster.fw if it exists
+  become: true
+  ansible.builtin.slurp:
+    path: "/etc/pve/firewall/cluster.fw"
+  register: cluster_fw_current
+  failed_when: false
+  changed_when: false
+
+- name: Write cluster.fw (only if changed)
+  become: true
+  ansible.builtin.shell: |
+    cat > "/etc/pve/firewall/cluster.fw" <<'EOF'
+    {{ cluster_fw_rendered }}
+    EOF
+  args:
+    executable: /bin/bash
+  when: >
+    cluster_fw_current is failed or
+    ((cluster_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
+    != cluster_fw_rendered
+  notify: restart pve-firewall
+
+- name: Render host.fw content
+  ansible.builtin.set_fact:
+    host_fw_rendered: "{{ (lookup('template', 'host.fw.j2') | regex_replace('\\r\\n', '\n') | regex_replace('\\r', '\n')).rstrip() ~ '\n' }}"
+
+- name: Read current host.fw if it exists
+  become: true
+  ansible.builtin.slurp:
+    path: "/etc/pve/nodes/{{ inventory_hostname }}/host.fw"
+  register: host_fw_current
+  failed_when: false
+  changed_when: false
+
+- name: Write host.fw (only if changed)
+  become: true
+  ansible.builtin.shell: |
+    cat > "/etc/pve/nodes/{{ inventory_hostname }}/host.fw" <<'EOF'
+    {{ host_fw_rendered }}
+    EOF
+  args:
+    executable: /bin/bash
+  when: >
+    host_fw_current is failed or
+    ((host_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
+    != host_fw_rendered
+  notify: restart pve-firewall
+
+- name: Ensure firewall service is running (best effort)
+  ansible.builtin.command: pve-firewall status
+  register: fw_status
+  changed_when: false
+  failed_when: false
+
+- name: Show firewall status
+  ansible.builtin.debug:
+    var: fw_status.stdout_lines

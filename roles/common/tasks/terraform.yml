@@ -1,0 +1,46 @@
+---
+- name: Ensure Terraform User exists
+  ansible.builtin.command: "pveum user add terraform-prov@pve --password {{ terraform_tmp_pass | mandatory }}"
+  register: user_cmd
+  failed_when: "user_cmd.rc != 0 and 'already exists' not in user_cmd.stderr"
+  changed_when: "user_cmd.rc == 0"
+
+- name: Create Terraform Role
+  ansible.builtin.command: >
+    pveum role add TerraformRole -privs 
+    "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.Cloudinit VM.Config.CPU 
+    VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network 
+    VM.Config.Options VM.Audit VM.PowerMgmt VM.Console VM.Migrate
+    Datastore.Allocate Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit 
+    Sys.Audit Sys.Console Sys.Modify Pool.Allocate SDN.Use"
+  register: terraform_role
+  failed_when: "terraform_role.rc != 0 and 'already exists' not in terraform_role.stderr"
+  changed_when: "terraform_role.rc == 0"
+
+- name: Bind TerraformRole to User
+  ansible.builtin.command: "pveum acl modify / -user terraform-prov@pve -role TerraformRole"
+  changed_when: false
+
+- name: Check for existing Terraform Token
+  ansible.builtin.command: "pveum user token list terraform-prov@pve --output-format json"
+  register: token_check
+  changed_when: false
+
+- name: Generate Terraform API Token
+  ansible.builtin.command: "pveum user token add terraform-prov@pve terraform-token --privsep 0 --output-format json"
+  register: token_gen
+  when: "'terraform-token' not in token_check.stdout"
+  no_log: true
+
+- name: Store Terraform Token in AWS SSM
+  community.aws.ssm_parameter:
+    name: "/infra/proxmox/terraform_token"
+    description: "API Token for BPG Terraform Provider"
+    value: "{{ (token_gen.stdout | from_json).value }}"
+    string_type: "SecureString"
+    overwrite_value: "always"
+    region: "{{ aws_region }}"
+    aws_profile: "{{ aws_profile }}"
+  delegate_to: localhost
+  become: false
+  when: token_gen.changed

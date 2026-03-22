@@ -1,0 +1,33 @@
+---
+# --- General ---
+proxmox_ssh_port: 2222
+proxmox_gui_port: 8006
+proxmox_debian_release: trixie
+
+# --- Firewall ---
+proxmox_firewall_enable_datacenter: true
+proxmox_firewall_enable_node: true
+proxmox_firewall_policy_in: DROP
+proxmox_firewall_policy_out: ACCEPT
+proxmox_firewall_policy_forward: ACCEPT
+proxmox_firewall_ebtables: true
+
+# --- fail2ban ---
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 5
+
+# --- ZFS / Storage ---
+# pve_nvme_provision: false prevents accidental destructive runs on hosts where ZFS provisioning is not intended.
+pve_nvme_provision: false
+pve_bridge: vmbr0
+pve_snippet_storage: local
+pve_snippet_path: /var/lib/vz/snippets
+
+# --- PBS backup job ---
+pbs_backup_schedule: "2:00"
+pbs_backup_mode: snapshot
+
+# --- OIDC realm names ---
+teleport_realm_name: teleport
+aws_oidc_realm_name: aws-sso

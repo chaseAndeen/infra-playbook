@@ -1,0 +1,73 @@
+---
+- name: Remove enterprise repo
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pve-enterprise.sources
+    state: absent
+
+- name: Remove ceph repo
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/ceph.sources
+    state: absent
+
+- name: Add no-subscription repo
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-no-subscription.sources
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pve
+      Suites: {{ proxmox_debian_release }} 
+      Components: pve-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Update apt cache and upgrade system
+  ansible.builtin.apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install unattended-upgrades packages
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+
+- name: Enable unattended upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+- name: Fetch Proxmox user list
+  ansible.builtin.command: pveum user list
+  register: pve_users
+  changed_when: false
+
+- name: Ensure user exists in Proxmox
+  ansible.builtin.command: "pveum user add {{ proxmox_user }}@pam"
+  when: (proxmox_user ~ '@pam') not in (pve_users.stdout | string)
+  changed_when: true
+
+- name: Check ACLs
+  ansible.builtin.command: pveum acl list
+  register: pve_acl
+  changed_when: false
+
+- name: Grant Administrator role
+  ansible.builtin.command: "pveum acl modify / -user {{ proxmox_user }}@pam -role Administrator"
+  when: >
+    (proxmox_user ~ '@pam.*Administrator') not in (pve_acl.stdout | regex_replace('\s+', ' '))
+  changed_when: true
+
+- name: Disable root login to Proxmox UI
+  ansible.builtin.command: "pveum user modify root@pam --enable 0"
+  changed_when: false
+  failed_when: false
+
+- name: Disable admin user PAM login to Proxmox UI
+  ansible.builtin.command: "pveum user modify {{ proxmox_user }}@pam --enable 0"
+  changed_when: false
+  failed_when: false

@@ -1,0 +1,23 @@
+---
+- name: Proxmox post install configuration
+  hosts: proxmox
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Fetch ansible SSH key from SSM
+      ansible.builtin.import_tasks: tasks/fetch_ssh_key.yml
+      tags: always
+
+    - name: Gather facts
+      ansible.builtin.gather_facts:
+      tags: always
+
+  roles:
+    - base
+    - common
+
+  post_tasks:
+    - name: Clean up temp SSH key
+      ansible.builtin.import_tasks: tasks/cleanup_ssh_key.yml
+      tags: always

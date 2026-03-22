@@ -1,0 +1,5 @@
+prune: {{ pbs_datastore_name }}-prune
+	keep-daily {{ pbs_keep_daily }}
+	keep-weekly {{ pbs_keep_weekly }}
+	schedule {{ pbs_prune_schedule }}
+	store {{ pbs_datastore_name }}

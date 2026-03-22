@@ -1,0 +1,40 @@
+---
+- name: PVE | System base and access
+  import_tasks: system.yml
+  tags: [system]
+
+- name: PVE | Storage configuration
+  import_tasks: storage.yml
+  tags: [storage]
+
+- name: PVE | ACME certificate
+  import_tasks: acme.yml
+  tags: [acme]
+
+- name: PVE | Firewall
+  import_tasks: firewall.yml
+  tags: [firewall]
+
+- name: PVE | Terraform API user
+  import_tasks: terraform.yml
+  tags: [terraform]
+
+- name: PVE | Packer API user
+  import_tasks: packer.yml
+  tags: [packer]
+
+- name: PVE | Notification configuration
+  import_tasks: notifications.yml
+  tags: [notifications]
+
+- name: PVE | AWS SSO OIDC realm (fallback)
+  import_tasks: oidc_aws.yml
+  tags: [oidc, oidc_aws]
+
+- name: PVE | Teleport OIDC realm (primary)
+  import_tasks: oidc_teleport.yml
+  tags: [oidc, oidc_teleport]
+
+- name: PVE | PBS storage registration
+  import_tasks: pbs.yml
+  tags: [pbs]

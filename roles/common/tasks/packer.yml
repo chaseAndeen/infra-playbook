@@ -1,0 +1,46 @@
+---
+- name: Ensure Packer User exists
+  ansible.builtin.command: "pveum user add packer-builder@pve --password {{ packer_api_password | mandatory }}"
+  register: user_creation
+  failed_when: "user_creation.rc != 0 and 'already exists' not in user_creation.stderr"
+  changed_when: "user_creation.rc == 0"
+
+- name: Create Custom Packer Role
+  ansible.builtin.command: >
+    pveum role add PackerRole --privs
+    "Datastore.Allocate,Datastore.AllocateSpace,Datastore.AllocateTemplate,Datastore.Audit,
+    SDN.Use,Sys.AccessNetwork,Sys.Audit,Sys.Console,Sys.Modify,
+    VM.Allocate,VM.Audit,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Cloudinit,
+    VM.Config.Disk,VM.Config.HWType,VM.Config.Memory,VM.Config.Network,VM.Config.Options,
+    VM.Console,VM.PowerMgmt,VM.GuestAgent.Audit,VM.GuestAgent.Unrestricted"
+  register: role_creation
+  failed_when: "role_creation.rc != 0 and 'already exists' not in role_creation.stderr"
+  changed_when: "role_creation.rc == 0"
+
+- name: Assign Role to User
+  ansible.builtin.command: "pveum acl modify / -user packer-builder@pve -role PackerRole"
+  changed_when: false
+
+- name: Check for existing Packer Token
+  ansible.builtin.command: "pveum user token list packer-builder@pve --output-format json"
+  register: token_check
+  changed_when: false
+
+- name: Generate Packer API Token
+  ansible.builtin.command: "pveum user token add packer-builder@pve packer-token --privsep 0 --output-format json"
+  register: token_output
+  when: "'packer-token' not in token_check.stdout"
+  no_log: true
+
+- name: Store Packer Token in AWS SSM
+  community.aws.ssm_parameter:
+    name: "/infra/proxmox/packer_token"
+    description: "API Token for Packer Proxmox Builder"
+    value: "{{ (token_output.stdout | from_json).value }}"
+    string_type: "SecureString"
+    overwrite_value: "always"
+    region: "{{ aws_region }}"
+    aws_profile: "{{ aws_profile }}"
+  delegate_to: localhost
+  become: false
+  when: token_output.changed

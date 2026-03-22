@@ -1,0 +1,20 @@
+[OPTIONS]
+enable: {{ 1 if proxmox_firewall_enable_datacenter else 0 }}
+policy_in: {{ proxmox_firewall_policy_in }}
+policy_out: {{ proxmox_firewall_policy_out }}
+policy_forward: {{ proxmox_firewall_policy_forward }}
+{% if proxmox_firewall_ebtables %}
+ebtables: 1
+{% else %}
+ebtables: 0
+{% endif %}
+
+[RULES]
+IN ACCEPT -p icmp
+
+# Allow Proxmox GUI and SSH ONLY from management networks
+{% for cidr in mgmt_cidrs %}
+IN ACCEPT -p tcp -dport {{ proxmox_gui_port }} -source {{ cidr }}
+IN ACCEPT -p tcp -dport {{ proxmox_ssh_port }} -source {{ cidr }}
+IN ACCEPT -p tcp -dport 22 -source {{ cidr }}
+{% endfor %}

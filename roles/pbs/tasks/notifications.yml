@@ -1,0 +1,78 @@
+---
+- name: PBS Notifications | Check existing SMTP endpoints
+  ansible.builtin.command: proxmox-backup-manager notification-target list --output-format json
+  register: pbs_smtp_endpoints
+  changed_when: false
+  failed_when: false
+
+- name: PBS Notifications | Create SMTP endpoint
+  ansible.builtin.command: >
+    proxmox-backup-manager notification-target create smtp ses-smtp
+    --server {{ smtp_server }}
+    --port {{ smtp_port }}
+    --mode starttls
+    --from-address {{ smtp_from }}
+    --mailto {{ smtp_to }}
+    --username {{ smtp_user }}
+    --password {{ smtp_pass }}
+    --author "Proxmox Backup Server"
+  no_log: true
+  register: pbs_smtp_create
+  changed_when: pbs_smtp_create.rc == 0
+  failed_when:
+    - pbs_smtp_create.rc != 0
+    - "'already exists' not in pbs_smtp_create.stderr"
+  when: >
+    pbs_smtp_endpoints.rc != 0 or
+    'ses-smtp' not in (pbs_smtp_endpoints.stdout | default('[]'))
+
+- name: PBS Notifications | Check existing matchers
+  ansible.builtin.command: proxmox-backup-manager notification-matcher list --output-format json
+  register: pbs_matchers
+  changed_when: false
+  failed_when: false
+
+- name: PBS Notifications | Disable default mail-to-root matcher
+  ansible.builtin.command: >
+    proxmox-backup-manager notification-matcher update mail-to-root
+    --disable true
+  register: pbs_disable_default
+  changed_when: pbs_disable_default.rc == 0
+  failed_when:
+    - pbs_disable_default.rc != 0
+    - "'not found' not in pbs_disable_default.stderr"
+    - "'does not exist' not in pbs_disable_default.stderr"
+
+- name: PBS Notifications | Create backup result matcher
+  ansible.builtin.command: >
+    proxmox-backup-manager notification-matcher create backup-results
+    --target ses-smtp
+    --match-field "exact:type=backup-finish"
+    --match-severity error,warning,info
+    --mode all
+    --comment "Backup job results"
+  register: pbs_backup_matcher
+  changed_when: pbs_backup_matcher.rc == 0
+  failed_when:
+    - pbs_backup_matcher.rc != 0
+    - "'already exists' not in pbs_backup_matcher.stderr"
+  when: >
+    pbs_matchers.rc != 0 or
+    'backup-results' not in (pbs_matchers.stdout | default('[]'))
+
+- name: PBS Notifications | Create prune and GC matcher
+  ansible.builtin.command: >
+    proxmox-backup-manager notification-matcher create prune-gc-results
+    --target ses-smtp
+    --match-field "exact:type=prune,exact:type=gc"
+    --match-severity error,warning
+    --mode any
+    --comment "Prune and garbage collection failures"
+  register: pbs_prune_matcher
+  changed_when: pbs_prune_matcher.rc == 0
+  failed_when:
+    - pbs_prune_matcher.rc != 0
+    - "'already exists' not in pbs_prune_matcher.stderr"
+  when: >
+    pbs_matchers.rc != 0 or
+    'prune-gc-results' not in (pbs_matchers.stdout | default('[]'))

@@ -1,0 +1,26 @@
+---
+# --- General ---
+proxmox_ssh_port: 2222
+proxmox_debian_release: trixie
+
+# --- NFS ---
+pbs_nfs_opts: "defaults,nofail,_netdev,nfsvers=4"
+pbs_nfs_uid: 2000
+pbs_nfs_gid: 2000
+
+# --- Retention policy ---
+pbs_keep_daily: 7
+pbs_keep_weekly: 4
+
+# --- Schedules ---
+pbs_prune_schedule: daily
+pbs_gc_schedule: weekly
+
+# --- fail2ban ---
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 5
+
+# --- OIDC realm names ---
+teleport_realm_name: teleport
+aws_oidc_realm_name: aws-sso

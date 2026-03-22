@@ -1,0 +1,8 @@
+---
+- name: Proxmox bootstrap configuration
+  hosts: proxmox
+  vars:
+    ansible_user: root
+    ansible_port: 22
+  roles:
+    - bootstrap

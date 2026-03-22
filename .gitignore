@@ -1,0 +1,7 @@
+inventory/group_vars/all.yml
+inventory/hosts.yml
+*.retry
+*.log
+.env
+roles/*/files/*.pub
+.ansible/

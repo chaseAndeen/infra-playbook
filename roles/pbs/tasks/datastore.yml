@@ -1,0 +1,82 @@
+---
+- name: PBS | Install NFS client
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+
+- name: PBS | Create NFS group
+  ansible.builtin.group:
+    name: "{{ pbs_nfs_group }}"
+    gid: "{{ pbs_nfs_gid }}"
+    state: present
+
+- name: PBS | Create NFS user
+  ansible.builtin.user:
+    name: "{{ pbs_nfs_user }}"
+    uid: "{{ pbs_nfs_uid }}"
+    group: "{{ pbs_nfs_group }}"
+    shell: /usr/sbin/nologin
+    create_home: false
+    comment: "Proxmox Backup Server NFS user"
+    state: present
+
+- name: PBS | Create NFS mount point
+  ansible.builtin.file:
+    path: "{{ pbs_datastore_path }}"
+    state: directory
+    owner: "{{ pbs_nfs_user }}"
+    group: "{{ pbs_nfs_group }}"
+    mode: "0755"
+
+- name: PBS | Mount TrueNAS NFS share
+  ansible.posix.mount:
+    path: "{{ pbs_datastore_path }}"
+    src: "{{ pbs_nfs_server }}:{{ pbs_nfs_export }}"
+    fstype: nfs
+    opts: "{{ pbs_nfs_opts }}"
+    state: mounted
+
+- name: PBS | Ensure mount point ownership after mount
+  ansible.builtin.file:
+    path: "{{ pbs_datastore_path }}"
+    owner: "{{ pbs_nfs_user }}"
+    group: "{{ pbs_nfs_group }}"
+    mode: "0755"
+
+- name: PBS | Write datastore config
+  ansible.builtin.template:
+    src: datastore.cfg.j2
+    dest: /etc/proxmox-backup/datastore.cfg
+    owner: root
+    group: backup
+    mode: "0640"
+  notify: Restart PBS
+
+- name: PBS | Write prune config
+  ansible.builtin.template:
+    src: prune.cfg.j2
+    dest: /etc/proxmox-backup/prune.cfg
+    owner: root
+    group: backup
+    mode: "0640"
+  notify: Restart PBS
+
+- name: PBS | Fetch TLS certificate fingerprint
+  ansible.builtin.shell: >
+    proxmox-backup-manager cert info |
+    grep -i 'Fingerprint (sha256)' |
+    awk '{print $NF}'
+  register: pbs_cert_fingerprint
+  changed_when: false
+
+- name: PBS | Store fingerprint in SSM
+  community.aws.ssm_parameter:
+    name: "/infra/pbs/fingerprint"
+    description: "PBS TLS certificate fingerprint for Proxmox storage registration"
+    value: "{{ pbs_cert_fingerprint.stdout | trim }}"
+    string_type: "String"
+    overwrite_value: "always"
+    region: "{{ aws_region }}"
+    aws_profile: "{{ aws_profile }}"
+  delegate_to: localhost
+  become: false

@@ -1,0 +1,14 @@
+---
+profile: production
+
+exclude_paths:
+  - .git/
+  - inventory/group_vars/all.yml
+  - inventory/hosts.yml
+
+warn_list:
+  - experimental
+
+skip_list:
+  - no-changed-when
+  - command-instead-of-module
