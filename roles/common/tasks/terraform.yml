@@ -7,11 +7,11 @@
 
 - name: Create Terraform Role
   ansible.builtin.command: >
-    pveum role add TerraformRole -privs 
-    "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.Cloudinit VM.Config.CPU 
-    VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network 
+    pveum role add TerraformRole -privs
+    "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.Cloudinit VM.Config.CPU
+    VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network
     VM.Config.Options VM.Audit VM.PowerMgmt VM.Console VM.Migrate
-    Datastore.Allocate Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit 
+    Datastore.Allocate Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit
     Sys.Audit Sys.Console Sys.Modify Pool.Allocate SDN.Use"
   register: terraform_role
   failed_when: "terraform_role.rc != 0 and 'already exists' not in terraform_role.stderr"
