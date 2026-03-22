@@ -36,7 +36,7 @@
     owner: root
     group: root
     mode: '0644'
-  notify: restart fail2ban
+  notify: Restart fail2ban
 
 - name: Base | Ensure fail2ban is enabled and running
   ansible.builtin.service:
@@ -51,7 +51,7 @@
     owner: root
     group: root
     mode: '0644'
-  notify: restart ssh
+  notify: Restart ssh
 
 - name: Base | Apply SSH restart now
   ansible.builtin.meta: flush_handlers

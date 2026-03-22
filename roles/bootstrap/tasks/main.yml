@@ -95,7 +95,7 @@
         owner: root
         group: root
         mode: '0644'
-      notify: restart ssh
+      notify: Restart ssh
 
     - name: Bootstrap | Apply SSH restart now
       ansible.builtin.meta: flush_handlers

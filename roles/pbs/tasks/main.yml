@@ -1,28 +1,28 @@
 ---
 - name: PBS | System
-  import_tasks: system.yml
+  ansible.builtin.import_tasks: system.yml
   tags: [system]
 
 - name: PBS | Networking and Hardening
-  import_tasks: network.yml
+  ansible.builtin.import_tasks: network.yml
   tags: [network]
 
 - name: PBS | Datastore
-  import_tasks: datastore.yml
+  ansible.builtin.import_tasks: datastore.yml
   tags: [datastore]
 
 - name: PBS | Users
-  import_tasks: users.yml
+  ansible.builtin.import_tasks: users.yml
   tags: [users]
 
 - name: PBS | Notification configuration
-  import_tasks: notifications.yml
+  ansible.builtin.import_tasks: notifications.yml
   tags: [notifications]
 
 - name: PBS | AWS SSO OIDC realm (fallback)
-  import_tasks: oidc_aws.yml
+  ansible.builtin.import_tasks: oidc_aws.yml
   tags: [oidc, oidc_aws]
 
 - name: PBS | Teleport OIDC realm (primary)
-  import_tasks: oidc_teleport.yml
+  ansible.builtin.import_tasks: oidc_teleport.yml
   tags: [oidc, oidc_teleport]

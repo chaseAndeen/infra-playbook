@@ -1,5 +1,5 @@
 ---
-- name: restart pve-firewall
+- name: Restart pve-firewall
   ansible.builtin.service:
     name: pve-firewall
     state: restarted

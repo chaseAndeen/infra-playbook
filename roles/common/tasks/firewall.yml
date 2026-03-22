@@ -32,7 +32,7 @@
     cluster_fw_current is failed or
     ((cluster_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
     != cluster_fw_rendered
-  notify: restart pve-firewall
+  notify: Restart pve-firewall
 
 - name: Firewall | Render host.fw content
   ansible.builtin.set_fact:
@@ -56,7 +56,7 @@
     host_fw_current is failed or
     ((host_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
     != host_fw_rendered
-  notify: restart pve-firewall
+  notify: Restart pve-firewall
 
 - name: Firewall | Ensure pve-firewall service is running (best effort)
   ansible.builtin.command: pve-firewall status

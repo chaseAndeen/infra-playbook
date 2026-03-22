@@ -1,6 +1,8 @@
 ---
 - name: ACME | Check current certificate status
-  ansible.builtin.shell: "pvenode cert info | grep -q 'Let.s Encrypt'"
+  ansible.builtin.shell:
+    cmd: "pvenode cert info | grep -q 'Let.s Encrypt'"
+    executable: /bin/bash
   register: cert_check
   failed_when: false
   changed_when: false
@@ -28,8 +30,10 @@
 - name: ACME | Register Cloudflare ACME plugin
   ansible.builtin.shell:
     cmd: |
+      set -o pipefail
       pvenode acme plugin remove cloudflare || true
       pvenode acme plugin add dns cloudflare --api cf --data /tmp/cf_acme_data --validation-delay 30
+    executable: /bin/bash
   when: cert_check.rc != 0
   register: plugin_add
   failed_when:
@@ -45,6 +49,7 @@
 - name: ACME | Register ACME account
   ansible.builtin.shell:
     cmd: 'echo "y" | pvenode acme account register default {{ cert_email }} --directory https://acme-v02.api.letsencrypt.org/directory'
+    executable: /bin/bash
   args:
     creates: /etc/pve/priv/acme/default
   no_log: true
@@ -53,11 +58,13 @@
 - name: ACME | Add domain configuration
   ansible.builtin.shell:
     cmd: "pvenode config set --acmedomain0 domain={{ cert_domain }},plugin=cloudflare"
+    executable: /bin/bash
   when: cert_check.rc != 0
 
 - name: ACME | Order certificate
   ansible.builtin.shell:
     cmd: "pvenode acme cert order"
+    executable: /bin/bash
   environment:
     LC_ALL: "C.UTF-8"
     LANG: "C.UTF-8"

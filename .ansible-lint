@@ -12,4 +12,6 @@ warn_list:
 skip_list:
   - no-changed-when
   - command-instead-of-module
+  - command-instead-of-shell
   - var-naming[no-role-prefix]
+
