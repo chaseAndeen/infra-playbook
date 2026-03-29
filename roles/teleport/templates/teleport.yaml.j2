@@ -1,0 +1,29 @@
+version: v3
+teleport:
+  nodename: {{ inventory_hostname }}
+  data_dir: {{ teleport_data_dir }}
+  log:
+    output: stderr
+    severity: INFO
+
+auth_service:
+  enabled: true
+  cluster_name: {{ teleport_domain }}
+  proxy_protocol: off
+
+proxy_service:
+  enabled: true
+  public_addr: {{ teleport_domain }}:443
+  web_listen_addr: 0.0.0.0:443
+  https_keypairs:
+    - cert_file: /etc/letsencrypt/live/{{ teleport_domain }}/fullchain.pem
+      key_file: /etc/letsencrypt/live/{{ teleport_domain }}/privkey.pem
+
+ssh_service:
+  enabled: true
+  labels:
+    env: infra
+
+app_service:
+  enabled: true
+  apps: []

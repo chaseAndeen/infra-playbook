@@ -1,0 +1,58 @@
+---
+- name: Teleport ACME | Install certbot and Cloudflare DNS plugin
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-dns-cloudflare
+    state: present
+
+- name: Teleport ACME | Write Cloudflare credentials
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/cloudflare.ini
+    content: |
+      dns_cloudflare_api_token = {{ cloudflare_token }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Teleport ACME | Check if certificate exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ teleport_domain }}/fullchain.pem"
+  register: teleport_cert
+
+- name: Teleport ACME | Obtain certificate via DNS-01 challenge
+  ansible.builtin.command: >
+    certbot certonly
+    --dns-cloudflare
+    --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini
+    --dns-cloudflare-propagation-seconds 30
+    -d {{ teleport_domain }}
+    --email {{ cert_email }}
+    --agree-tos
+    --non-interactive
+  when: not teleport_cert.stat.exists
+  register: certbot_issue
+  changed_when: certbot_issue.rc == 0
+
+- name: Teleport ACME | Install renewal deploy hook to restart Teleport
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/restart-teleport.sh
+    content: |
+      #!/bin/bash
+      systemctl reload-or-restart teleport
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Teleport ACME | Enable certbot renewal timer
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: Teleport ACME | Start and enable Teleport
+  ansible.builtin.systemd:
+    name: teleport
+    enabled: true
+    state: started

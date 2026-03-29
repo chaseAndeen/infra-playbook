@@ -1,0 +1,31 @@
+---
+# Registers web UIs as Teleport applications.
+# Once registered, they appear in the Teleport dashboard and are accessible
+# via the Teleport app proxy after a single login — no separate auth needed.
+
+- name: Teleport Apps | Check existing applications
+  ansible.builtin.command: tctl get apps --format json
+  register: teleport_apps
+  changed_when: false
+  failed_when: false
+
+- name: Teleport Apps | Write application specs
+  ansible.builtin.template:
+    src: apps.yaml.j2
+    dest: /tmp/teleport-apps.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Teleport Apps | Apply application registrations
+  ansible.builtin.command: tctl create -f /tmp/teleport-apps.yaml
+  register: apps_create
+  changed_when: apps_create.rc == 0
+  failed_when:
+    - apps_create.rc != 0
+    - "'already exists' not in apps_create.stderr"
+
+- name: Teleport Apps | Remove app spec from disk
+  ansible.builtin.file:
+    path: /tmp/teleport-apps.yaml
+    state: absent

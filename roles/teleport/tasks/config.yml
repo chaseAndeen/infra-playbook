@@ -1,0 +1,9 @@
+---
+- name: Teleport | Write production config
+  ansible.builtin.template:
+    src: teleport.yaml.j2
+    dest: "{{ teleport_config_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart teleport

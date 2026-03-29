@@ -13,9 +13,18 @@
       changed_when: false
       failed_when: false
 
+    - name: Storage | Check if device already has ZFS labels
+      ansible.builtin.command: "zdb -l {{ pve_zfs_device }}"
+      register: zdb_check
+      changed_when: false
+      failed_when: false
+      when: zpool_exists.rc != 0
+
     - name: Storage | Wipe disk signatures
       ansible.builtin.command: "wipefs -a {{ pve_zfs_device }}"
-      when: zpool_exists.rc != 0
+      when:
+        - zpool_exists.rc != 0
+        - zdb_check.rc != 0
       changed_when: true
 
     - name: Storage | Create ZFS pool (DESTRUCTIVE)
@@ -25,7 +34,9 @@
         -O xattr=sa
         -O atime=off
         {{ pve_zfs_pool }} {{ pve_zfs_device }}
-      when: zpool_exists.rc != 0
+      when:
+        - zpool_exists.rc != 0
+        - zdb_check.rc != 0
       changed_when: true
 
     - name: Storage | Enable autotrim

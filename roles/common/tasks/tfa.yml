@@ -1,0 +1,15 @@
+---
+- name: PVE TFA | Check current PAM realm TFA config
+  ansible.builtin.command: pveum realm list --output-format json
+  register: pve_realms
+  changed_when: false
+
+- name: PVE TFA | Enforce TOTP on PAM realm
+  ansible.builtin.command: pveum realm modify pam --tfa type=oath
+  register: pve_tfa
+  changed_when: pve_tfa.rc == 0
+  failed_when:
+    - pve_tfa.rc != 0
+    - "'no changes' not in pve_tfa.stderr"
+  when: >
+    (pve_realms.stdout | from_json | selectattr('realm', 'equalto', 'pam') | list | first).get('tfa', '') != 'oath'

@@ -1,0 +1,22 @@
+---
+- name: Deploy hardened SSH config
+  ansible.builtin.template:
+    src: 99-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart ssh
+
+- name: Apply SSH restart now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for SSH to come back
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host | default(inventory_hostname) }}"
+    port: "{{ proxmox_ssh_port }}"
+    timeout: 30
+
+- name: Confirm Ansible can reconnect
+  ansible.builtin.wait_for_connection:
+    timeout: 30

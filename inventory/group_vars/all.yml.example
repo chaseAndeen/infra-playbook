@@ -1,34 +1,22 @@
 ---
 # --- AWS SSO / IAM Configuration ---
-aws_profile: "YourSSOProfile"               # your AWS SSO profile name
+aws_profile: "YourSSOProfile"
 aws_region: "us-east-1"
 
 # --- User SSH Public Keys ---
 admin_public_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/public_key', profile=aws_profile, region=aws_region) }}"
 ansible_public_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/ansible_public_key', profile=aws_profile, region=aws_region) }}"
+admin_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/admin_password', profile=aws_profile, region=aws_region) }}"
+root_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/root_password', profile=aws_profile, region=aws_region) }}"
 
 # --- Ansible service account ---
 ansible_service_user: ansible
 
-# --- Teleport OIDC ---
-teleport_domain: "teleport.infra.kernelstack.dev"   # your Teleport proxy domain
-teleport_issuer_url: "https://{{ teleport_domain }}"
-teleport_client_id: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/teleport/client_id', profile=aws_profile, region=aws_region) }}"
-teleport_client_secret: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/teleport/client_secret', profile=aws_profile, region=aws_region) }}"
-teleport_realm_name: teleport
+# --- Teleport ---
+teleport_domain: "teleport.infra.example.com"
 
-# --- AWS Cognito OIDC (fallback) ---
-# Issuer URL is pool-level, shared between PVE and PBS
-aws_oidc_issuer_url: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/aws/issuer_url', profile=aws_profile, region=aws_region) }}"
-aws_oidc_realm_name: aws-sso
-
-# PVE app client
-aws_oidc_pve_client_id: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/aws/pve/client_id', profile=aws_profile, region=aws_region) }}"
-aws_oidc_pve_client_secret: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/aws/pve/client_secret', profile=aws_profile, region=aws_region) }}"
-
-# PBS app client
-aws_oidc_pbs_client_id: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/aws/pbs/client_id', profile=aws_profile, region=aws_region) }}"
-aws_oidc_pbs_client_secret: "{{ lookup('amazon.aws.ssm_parameter', '/infra/oidc/aws/pbs/client_secret', profile=aws_profile, region=aws_region) }}"
+# --- Infrastructure hosts (used by Teleport app proxy) ---
+truenas_host: "truenas.infra.example.com"
 
 # --- SMTP Notifications ---
 smtp_server: "email-smtp.us-east-1.amazonaws.com"
@@ -43,16 +31,16 @@ smtp_user: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/user', pro
 smtp_pass: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/pass', profile=aws_profile, region=aws_region) }}"
 
 # --- SSL Cert ---
-cert_domain_suffix: "example.com"           # your internal domain suffix
+cert_domain_suffix: "infra.example.com"
 cert_domain: "{{ inventory_hostname }}.{{ cert_domain_suffix }}"
-cert_email: admin@example.com               # ACME registration email
+cert_email: admin@example.com
 
 # --- Firewall Settings ---
 mgmt_cidrs:
-  - 192.168.x.x/24                          # your management network CIDR
-  - 10.x.x.x/24                             # your VPN management CIDR
+  - 192.168.x.x/24
+  - 10.x.x.x/24
 
-pve_network_cidr: "192.168.x.x/24"          # subnet where Proxmox nodes live
+pve_network_cidr: "192.168.x.x/24"
 
 proxmox_firewall_enable_datacenter: true
 proxmox_firewall_enable_node: true
@@ -71,7 +59,7 @@ pve_snippet_path: "/var/lib/vz/snippets"
 
 proxmox_ssh_port: 2222
 proxmox_gui_port: 8006
-proxmox_user: your-admin-username          # admin username provisioned by bootstrap
+proxmox_user: your-admin-username
 proxmox_debian_release: trixie
 
 # --- API User Passwords ---

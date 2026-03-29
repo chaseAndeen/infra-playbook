@@ -60,12 +60,3 @@
   failed_when:
     - root_disable.rc != 0
     - "'no changes' not in root_disable.stderr"
-
-- name: PBS | Disable admin user PAM login
-  ansible.builtin.command: >
-    proxmox-backup-manager user update {{ proxmox_user }}@pam --enable false
-  register: admin_pam_disable
-  changed_when: admin_pam_disable.rc == 0
-  failed_when:
-    - admin_pam_disable.rc != 0
-    - "'no changes' not in admin_pam_disable.stderr"

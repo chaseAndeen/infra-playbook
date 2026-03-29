@@ -1,0 +1,32 @@
+---
+- name: Base | Admin user account
+  block:
+    - name: Base | Ensure admin user exists
+      ansible.builtin.user:
+        name: "{{ proxmox_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+        password: "{{ admin_password | password_hash('sha512') }}"
+
+    - name: Base | Set root password
+      ansible.builtin.user:
+        name: root
+        password: "{{ root_password | password_hash('sha512') }}"
+
+    - name: Base | Install admin user authorized key
+      ansible.posix.authorized_key:
+        user: "{{ proxmox_user }}"
+        state: present
+        key: "{{ admin_public_key }}"
+
+    - name: Base | Allow admin user sudo with password
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ proxmox_user }}"
+        content: |
+          {{ proxmox_user }} ALL=(ALL) ALL
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s

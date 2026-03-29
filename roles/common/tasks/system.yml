@@ -67,8 +67,3 @@
   ansible.builtin.command: "pveum user modify root@pam --enable 0"
   changed_when: false
   failed_when: false
-
-- name: Disable admin user PAM login to Proxmox UI
-  ansible.builtin.command: "pveum user modify {{ proxmox_user }}@pam --enable 0"
-  changed_when: false
-  failed_when: false

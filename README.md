@@ -1,6 +1,16 @@
-# proxmox-playbook
+# infra-playbook
 
-Ansible IaC for Proxmox VE and Proxmox Backup Server. Secrets managed via AWS SSM Parameter Store, accessed through AWS IAM Identity Center SSO.
+Ansible IaC for Proxmox VE, Proxmox Backup Server, and Teleport. Secrets managed via AWS SSM Parameter Store, accessed through AWS IAM Identity Center SSO.
+
+---
+
+## Architecture
+
+Teleport is the single access point for all infrastructure:
+
+- **SSH** — all VM access goes through Teleport's SSH CA. No static keys needed after initial bootstrap.
+- **Web UIs** — PVE, PBS, TrueNAS, and future services are registered as Teleport app proxy applications. One login at `teleport.infra.kernelstack.dev` gives access to everything.
+- **Break-glass** — local PAM admin user exists on PVE and PBS for direct access if Teleport is unavailable. TOTP is enforced on PVE PAM; PBS requires manual TOTP setup via the web UI.
 
 ---
 
@@ -8,8 +18,8 @@ Ansible IaC for Proxmox VE and Proxmox Backup Server. Secrets managed via AWS SS
 
 ### Dependencies
 ```bash
-ansible-galaxy collection install community.general amazon.aws ansible.posix
-pipx inject ansible-core boto3 botocore
+ansible-galaxy collection install community.general community.aws amazon.aws ansible.posix
+pipx inject ansible-core boto3 botocore passlib
 aws sso login --profile <your-aws-profile>
 ```
 
@@ -27,93 +37,98 @@ Seed these parameters before running any playbook.
 
 | Path | Type | Description |
 |---|---|---|
-| `/infra/common/public_key` | String | Admin user SSH public key — provisioned by bootstrap |
+| `/infra/common/public_key` | String | Admin user SSH public key |
+| `/infra/common/admin_password` | SecureString | Admin user login password |
+| `/infra/common/root_password` | SecureString | Root user login password |
 | `/infra/common/ansible_public_key` | String | `ansible` service account SSH public key |
 | `/infra/common/ansible_private_key` | SecureString | `ansible` service account SSH private key |
-| `/infra/common/cloudflare/api_token` | SecureString | Cloudflare API Token with DNS Edit permission — required for ACME |
+| `/infra/common/cloudflare/api_token` | SecureString | Cloudflare API token with DNS Edit permission — required for ACME |
 | `/infra/common/cloudflare/zone_id` | String | Cloudflare zone ID |
 | `/infra/common/smtp/user` | String | SMTP username |
 | `/infra/common/smtp/pass` | SecureString | SMTP password |
-| `/infra/oidc/aws/issuer_url` | String | Cognito OIDC issuer URL — `https://cognito-idp.<region>.amazonaws.com/<pool-id>` |
-| `/infra/oidc/aws/pve/client_id` | String | Cognito app client ID for Proxmox PVE |
-| `/infra/oidc/aws/pve/client_secret` | SecureString | Cognito app client secret for Proxmox PVE |
-| `/infra/oidc/aws/pbs/client_id` | String | Cognito app client ID for PBS |
-| `/infra/oidc/aws/pbs/client_secret` | SecureString | Cognito app client secret for PBS |
-| `/infra/oidc/teleport/client_id` | String | Teleport OIDC application client ID |
-| `/infra/oidc/teleport/client_secret` | SecureString | Teleport OIDC application client secret |
 | `/infra/proxmox/terraform_tmp_pass` | SecureString | Initial password for `terraform-prov@pve` — used only at user creation |
 | `/infra/proxmox/packer_api_password` | SecureString | Initial password for `packer-builder@pve` — used only at user creation |
 | `/infra/proxmox/terraform_token` | SecureString | Proxmox API token for Terraform — written automatically by `site.yml` |
 | `/infra/proxmox/packer_token` | SecureString | Proxmox API token for Packer — written automatically by `site.yml` |
 | `/infra/pbs/backup_user_password` | SecureString | Password for `backup-user@pbs` |
 | `/infra/pbs/fingerprint` | String | PBS TLS fingerprint — written automatically by `pbs.yml` |
-
----
-
-## Cognito OIDC Setup Notes
-
-Proxmox and PBS use AWS Cognito as a fallback OIDC realm (`aws-sso`) independent of Teleport.
-
-**Cognito app client requirements:**
-- App type: Confidential client
-- Grant type: Authorization code
-- Scopes: `openid`, `profile`, `email`
-- Allowed callback URLs:
-  - PVE: `https://<pve-hostname>:<gui-port>`
-  - PBS: `https://<pbs-hostname>:8007`
-
-**Username mapping:** Set `preferred_username` on each Cognito user to match their desired Proxmox username. The realm uses `--username-claim preferred_username --query-userinfo 0` to read claims from the ID token directly.
-
-**First-login flow:** The realm uses `autocreate 1` so users are created on first login. After logging in for the first time, re-run `--tags oidc_aws` to assign the user to the `oidc-admins` group and gain Administrator permissions.
+| `/infra/teleport/node_token` | SecureString | Teleport node enrollment token — written automatically by `teleport.yml` |
 
 ---
 
 ## Deployment Order
 
-### 1. Bootstrap — Proxmox first-time setup
-Runs as `root` on port 22. Creates the admin and ansible OS accounts, transitions SSH to port 2222.
+### 1. Bootstrap
+Runs as `root` on port 22. Creates the `ansible` service account and transitions SSH to port 2222.
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/bootstrap.yml
 ```
 
-**Post-run:**
-- SSH in as root and set passwords: `passwd <admin-user> && passwd root`
-- Log into Proxmox UI and configure TOTP for the admin user
+### 2. Create admin user
+Runs the `base` role to create the admin OS user, set passwords from SSM, install the SSH key, and configure sudoers.
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags base
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags base
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
+```
 
-### 2. Proxmox — post-install configuration
+### 3. Proxmox — post-install configuration
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --skip-tags pbs
 ```
-Configures repos, ZFS storage, firewall, ACME cert, Terraform/Packer API users, and Cognito OIDC realm.
+Configures repos, ZFS storage, firewall, ACME cert, Terraform/Packer API users, and enforces TOTP on the PAM realm.
 
-### 3. Proxmox — first Cognito login
-Log into the Proxmox UI using the `aws-sso` realm, then assign group membership:
-```bash
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc_aws
-```
+**Post-run:**
+- Log into the PVE web UI — you will be prompted to enrol an authenticator app before proceeding.
 
 ### 4. PBS — provision and configure
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml
 ```
-Configures repos, NFS mount, datastore, prune/GC schedules, UFW firewall, users, and Cognito OIDC realm.
+Configures repos, NFS mount, datastore, prune/GC schedules, firewall, and users.
 
-### 5. PBS — first Cognito login
-Log into the PBS UI using the `aws-sso` realm, then assign group membership:
-```bash
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc_aws
-```
+**Post-run:**
+- PBS does not support realm-level TFA enforcement. Log into the PBS web UI and set up TOTP manually:
+  Administration → User Management → `sysop@pam` → TFA → Add TOTP
 
-### 6. Proxmox — register PBS storage and backup job
+### 5. Proxmox — register PBS storage and backup job
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
 ```
+Registers PBS as a PVE storage backend and creates a nightly backup job (`--all 1`). Templates and the PBS VM are automatically excluded on every run — new Packer templates are picked up dynamically. All other VMs are backed up. Notifications fire on errors and warnings only.
 
-### 7. Teleport — configure OIDC
-Once Teleport is deployed and the OIDC app is created, seed the Teleport SSM parameters then run:
+### 6. Teleport — configure
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc_teleport
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc_teleport
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml
+```
+Obtains a TLS certificate via Cloudflare DNS-01 challenge (no inbound port 443 required), writes production config, configures firewall, creates admin user, registers PVE/PBS/TrueNAS as app proxy applications, and generates a node enrollment token stored in SSM.
+
+**Post-run:**
+- Use the invite link printed by the `users` task to complete Teleport admin account setup
+- Ensure `teleport.infra.kernelstack.dev` has a Cloudflare DNS A record pointing at the Teleport VM
+
+### 7. Enroll nodes
+After Teleport is configured, enroll PVE, PBS, and any other VMs using the token stored in SSM.
+
+Retrieve the token:
+```bash
+NODE_TOKEN=$(aws ssm get-parameter \
+  --name /infra/teleport/node_token \
+  --with-decryption \
+  --query Parameter.Value \
+  --output text \
+  --profile InfraProvisioner)
+```
+
+On each VM, generate a config and enable the service:
+```bash
+sudo teleport configure \
+  --roles=node \
+  --token=$NODE_TOKEN \
+  --proxy=teleport.infra.kernelstack.dev:443 \
+  --output=/etc/teleport.yaml
+
+sudo systemctl enable --now teleport
 ```
 
 ---
@@ -123,21 +138,33 @@ ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc_teleport
 All playbooks are idempotent and safe to re-run at any time.
 
 ```bash
-# ACME certificate renewal
+# Password rotation — update SSM then run:
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags base
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags base
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
+
+# ACME certificate renewal (PVE — Cloudflare DNS-01)
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags acme
+
+# TLS certificate renewal (Teleport — certbot runs automatically via systemd timer)
+# To force a manual renewal:
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags acme
+
+# TFA enforcement check
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags tfa
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags tfa
 
 # Firewall rules
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags firewall
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags firewall
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags firewall
 
 # Notification configuration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags notifications
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags notifications
 
-# OIDC realms
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc_aws
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc_teleport
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc_aws
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc_teleport
+# Teleport app registrations
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags apps
 
 # PBS storage registration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs

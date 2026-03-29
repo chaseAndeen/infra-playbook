@@ -53,7 +53,7 @@
   register: existing_backup_jobs
   changed_when: false
 
-- name: PVE | Create daily backup job for all non-template VMs
+- name: PVE | Create daily backup job for all VMs
   ansible.builtin.command: >
     pvesh create /cluster/backup
     --storage {{ pbs_storage_id }}
@@ -74,3 +74,46 @@
     existing_backup_jobs.stdout | from_json |
     selectattr('storage', 'equalto', pbs_storage_id) |
     list | length == 0
+
+- name: PVE | Discover all VMs on this node
+  ansible.builtin.command: pvesh get /nodes/{{ ansible_facts['hostname'] }}/qemu --output-format json
+  register: pve_all_vms
+  changed_when: false
+
+- name: PVE | Build backup exclusion list (templates + PBS VM)
+  ansible.builtin.set_fact:
+    pbs_exclude_vmids: >-
+      {{
+        (
+          (pve_all_vms.stdout | from_json |
+            selectattr('template', 'defined') |
+            selectattr('template', 'equalto', 1) |
+            map(attribute='vmid') | list)
+          +
+          (pve_all_vms.stdout | from_json |
+            selectattr('name', 'equalto', groups['pbs'][0]) |
+            map(attribute='vmid') | list)
+        ) | map('string') | list | unique | sort
+      }}
+
+- name: PVE | Update backup job exclusions if out of date
+  vars:
+    _backup_job: >-
+      {{
+        existing_backup_jobs.stdout | from_json |
+        selectattr('storage', 'equalto', pbs_storage_id) |
+        list | first | default({})
+      }}
+    _current: >-
+      {{
+        (_backup_job.get('exclude', '') | string).split(',') |
+        reject('equalto', '') | list | sort
+      }}
+    _desired: "{{ pbs_exclude_vmids | sort }}"
+  ansible.builtin.command: >
+    pvesh set /cluster/backup/{{ _backup_job.id }}
+    --exclude {{ pbs_exclude_vmids | join(',') }}
+  when:
+    - _backup_job | length > 0
+    - _current != _desired
+  changed_when: true

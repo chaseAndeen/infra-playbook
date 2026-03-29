@@ -1,20 +1,30 @@
 ---
-- name: PBS | Add Proxmox repository GPG key
+- name: PBS | Download Proxmox archive keyring
   ansible.builtin.get_url:
-    url: "https://enterprise.proxmox.com/debian/proxmox-release-{{ proxmox_debian_release }}.gpg"
-    dest: "/etc/apt/trusted.gpg.d/proxmox-release-{{ proxmox_debian_release }}.gpg"
+    url: "https://enterprise.proxmox.com/debian/proxmox-archive-keyring-{{ proxmox_debian_release }}.gpg"
+    dest: /usr/share/keyrings/proxmox-archive-keyring.gpg
     mode: "0644"
 
 - name: PBS | Add no-subscription repository
-  ansible.builtin.apt_repository:
-    repo: "deb http://download.proxmox.com/debian/pbs {{ proxmox_debian_release }} pbs-no-subscription"
-    filename: pbs
-    state: present
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pbs.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pbs
+      Suites: {{ proxmox_debian_release }}
+      Components: pbs-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 
-- name: PBS | Remove enterprise repository if present
+- name: PBS | Remove enterprise and conflicting repositories
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/pbs-enterprise.list
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/apt/sources.list.d/pbs-enterprise.list
+    - /etc/apt/sources.list.d/pbs-enterprise.sources
+    - /etc/apt/sources.list.d/pbs.list
+    - /etc/apt/sources.list.d/pbs-no-subscription.list
 
 - name: PBS | Update apt cache
   ansible.builtin.apt:

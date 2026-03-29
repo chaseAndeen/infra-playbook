@@ -1,0 +1,39 @@
+---
+- name: Teleport | Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Teleport | Allow SSH on port 2222
+  community.general.ufw:
+    rule: allow
+    port: "2222"
+    proto: tcp
+
+- name: Teleport | Allow Teleport proxy (HTTPS + ACME)
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Teleport | Allow Teleport SSH proxy
+  community.general.ufw:
+    rule: allow
+    port: "3022"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: Teleport | Allow Teleport auth (internal only)
+  community.general.ufw:
+    rule: allow
+    port: "3025"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: Teleport | Enable UFW
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming

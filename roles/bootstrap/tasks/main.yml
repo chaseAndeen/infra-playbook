@@ -33,32 +33,6 @@
         name: sudo
         state: present
 
-- name: Bootstrap | Admin user account
-  block:
-    - name: Bootstrap | Ensure admin user exists
-      ansible.builtin.user:
-        name: "{{ proxmox_user }}"
-        shell: /bin/bash
-        groups: sudo
-        append: true
-        create_home: true
-
-    - name: Bootstrap | Install admin user authorized key
-      ansible.posix.authorized_key:
-        user: "{{ proxmox_user }}"
-        state: present
-        key: "{{ admin_public_key }}"
-
-    - name: Bootstrap | Allow admin user sudo with password
-      ansible.builtin.copy:
-        dest: "/etc/sudoers.d/{{ proxmox_user }}"
-        content: |
-          {{ proxmox_user }} ALL=(ALL) ALL
-        owner: root
-        group: root
-        mode: '0440'
-        validate: /usr/sbin/visudo -cf %s
-
 - name: Bootstrap | Ansible service account
   block:
     - name: Bootstrap | Ensure ansible user exists

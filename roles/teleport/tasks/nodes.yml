@@ -1,0 +1,40 @@
+---
+# Creates a reusable node enrollment token stored in SSM.
+# VMs use this token to register with the Teleport cluster.
+# The token is written to SSM so it can be used by other playbooks.
+
+- name: Teleport Nodes | Check if enrollment token exists in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/teleport/node_token"
+    --profile {{ aws_profile }}
+    --region {{ aws_region }}
+  register: node_token_check
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  failed_when: false
+
+- name: Teleport Nodes | Generate node enrollment token
+  ansible.builtin.command: >
+    tctl tokens add
+    --type=node
+    --ttl=87600h
+    --format=text
+  register: node_token_generate
+  changed_when: true
+  when: node_token_check.rc != 0
+
+- name: Teleport Nodes | Store enrollment token in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/teleport/node_token"
+    --value "{{ node_token_generate.stdout | trim }}"
+    --type SecureString
+    --overwrite
+    --profile {{ aws_profile }}
+    --region {{ aws_region }}
+  delegate_to: localhost
+  become: false
+  when: node_token_check.rc != 0
+  no_log: true

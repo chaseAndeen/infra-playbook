@@ -54,10 +54,27 @@ jobs:
             hosts:
               pve-01:
                 ansible_host: 192.168.1.1
+                pve_nvme_provision: false
+                pbs_server: "192.168.1.2"
+                pbs_storage_id: "pbs-main"
+                pbs_datastore_name: "main"
+                pbs_backup_user: "backup-user@pbs"
+                pbs_backup_schedule: "2:00"
+                pbs_backup_mode: "snapshot"
           pbs:
             hosts:
               pbs-01:
                 ansible_host: 192.168.1.2
+                pbs_datastore_name: "main"
+                pbs_datastore_path: "/mnt/backups"
+                pbs_nfs_server: "nas.example.com"
+                pbs_nfs_export: "/mnt/pool/dataset"
+                pbs_backup_user: "backup-user@pbs"
+                pbs_backup_user_password: "dummy"
+          teleport:
+            hosts:
+              teleport-01:
+                ansible_host: 192.168.1.3
           EOF
           cat > inventory/group_vars/all.yml << 'EOF'
           aws_profile: "dummy"
@@ -67,26 +84,17 @@ jobs:
           proxmox_ssh_port: 2222
           proxmox_gui_port: 8006
           proxmox_debian_release: "trixie"
-          proxmox_ssh_key: "dummy"
-          sysop_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 dummy"
           admin_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 dummy"
           ansible_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 dummy"
+          admin_password: "dummy"
+          root_password: "dummy"
           cloudflare_token: "dummy"
           cloudflare_zone_id: "dummy"
           cert_domain_suffix: "example.com"
           cert_domain: "pve-01.example.com"
           cert_email: "admin@example.com"
           teleport_domain: "teleport.example.com"
-          teleport_issuer_url: "https://teleport.example.com"
-          teleport_client_id: "dummy"
-          teleport_client_secret: "dummy"
-          teleport_realm_name: "teleport"
-          aws_oidc_issuer_url: "https://cognito-idp.us-east-1.amazonaws.com/dummy"
-          aws_oidc_realm_name: "aws-sso"
-          aws_oidc_pve_client_id: "dummy"
-          aws_oidc_pve_client_secret: "dummy"
-          aws_oidc_pbs_client_id: "dummy"
-          aws_oidc_pbs_client_secret: "dummy"
+          truenas_host: "truenas.example.com"
           smtp_server: "email-smtp.us-east-1.amazonaws.com"
           smtp_port: 587
           smtp_from: "alerts@example.com"
@@ -124,6 +132,11 @@ jobs:
       - name: Syntax check pbs
         run: >
           ansible-playbook playbooks/pbs.yml
+          --syntax-check
+          -i inventory/hosts.yml
+      - name: Syntax check teleport
+        run: >
+          ansible-playbook playbooks/teleport.yml
           --syntax-check
           -i inventory/hosts.yml
 env:

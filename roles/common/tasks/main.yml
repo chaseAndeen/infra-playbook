@@ -27,13 +27,9 @@
   ansible.builtin.import_tasks: notifications.yml
   tags: [notifications]
 
-- name: PVE | AWS SSO OIDC realm (fallback)
-  ansible.builtin.import_tasks: oidc_aws.yml
-  tags: [oidc, oidc_aws]
-
-- name: PVE | Teleport OIDC realm (primary)
-  ansible.builtin.import_tasks: oidc_teleport.yml
-  tags: [oidc, oidc_teleport]
+- name: PVE | Two-factor authentication
+  ansible.builtin.import_tasks: tfa.yml
+  tags: [tfa]
 
 - name: PVE | PBS storage registration
   ansible.builtin.import_tasks: pbs.yml
