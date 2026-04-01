@@ -1,11 +1,11 @@
 ---
-- name: Notifications | Check existing SMTP endpoints
+- name: PVE Notifications | Check existing SMTP endpoints
   ansible.builtin.command: pvesh get /cluster/notifications/endpoints/smtp --output-format json
-  register: smtp_endpoints
+  register: _smtp_endpoints
   changed_when: false
   failed_when: false
 
-- name: Notifications | Create SMTP endpoint
+- name: PVE Notifications | Create SMTP endpoint
   ansible.builtin.command: >
     pvesh create /cluster/notifications/endpoints/smtp
     --name ses-smtp
@@ -18,32 +18,38 @@
     --password {{ smtp_pass }}
     --author "Proxmox VE"
   no_log: true
-  register: smtp_create
-  changed_when: smtp_create.rc == 0
+  register: _smtp_create
+  changed_when: _smtp_create.rc == 0
   failed_when:
-    - smtp_create.rc != 0
-    - "'already exists' not in smtp_create.stderr"
+    - _smtp_create.rc != 0
+    - "'already exists' not in _smtp_create.stderr"
   when: >
-    smtp_endpoints.rc != 0 or
-    'ses-smtp' not in (smtp_endpoints.stdout | default('[]'))
+    _smtp_endpoints.rc != 0 or
+    'ses-smtp' not in (_smtp_endpoints.stdout | from_json | map(attribute='name') | list)
 
-- name: Notifications | Check existing matchers
+- name: PVE Notifications | Check existing matchers
   ansible.builtin.command: pvesh get /cluster/notifications/matchers --output-format json
-  register: notification_matchers
+  register: _notification_matchers
   changed_when: false
   failed_when: false
 
-- name: Notifications | Disable default mail-to-root matcher
+- name: PVE Notifications | Disable default mail-to-root matcher
+  vars:
+    _mail_to_root: >-
+      {{ _notification_matchers.stdout | from_json |
+         selectattr('name', 'equalto', 'mail-to-root') |
+         list | first | default({}) }}
   ansible.builtin.command: >
     pvesh set /cluster/notifications/matchers/mail-to-root
     --disable 1
-  register: disable_default
-  changed_when: disable_default.rc == 0
-  failed_when:
-    - disable_default.rc != 0
-    - "'not found' not in disable_default.stderr"
+  register: _disable_default
+  changed_when: true
+  when:
+    - _notification_matchers.rc == 0
+    - _mail_to_root | length > 0
+    - not (_mail_to_root.get('disable', false) | bool)
 
-- name: Notifications | Create backup failure matcher
+- name: PVE Notifications | Create backup failure matcher
   ansible.builtin.command: >
     pvesh create /cluster/notifications/matchers
     --name backup-failures
@@ -52,16 +58,16 @@
     --match-severity error,warning
     --mode all
     --comment "Backup job failures and warnings"
-  register: backup_matcher
-  changed_when: backup_matcher.rc == 0
+  register: _backup_matcher
+  changed_when: _backup_matcher.rc == 0
   failed_when:
-    - backup_matcher.rc != 0
-    - "'already exists' not in backup_matcher.stderr"
+    - _backup_matcher.rc != 0
+    - "'already exists' not in _backup_matcher.stderr"
   when: >
-    notification_matchers.rc != 0 or
-    'backup-failures' not in (notification_matchers.stdout | default('[]'))
+    _notification_matchers.rc != 0 or
+    'backup-failures' not in (_notification_matchers.stdout | from_json | map(attribute='name') | list)
 
-- name: Notifications | Create system health matcher
+- name: PVE Notifications | Create system health matcher
   ansible.builtin.command: >
     pvesh create /cluster/notifications/matchers
     --name system-health
@@ -70,11 +76,11 @@
     --match-severity error,warning,unknown
     --mode all
     --comment "System health events including ZFS and storage"
-  register: health_matcher
-  changed_when: health_matcher.rc == 0
+  register: _health_matcher
+  changed_when: _health_matcher.rc == 0
   failed_when:
-    - health_matcher.rc != 0
-    - "'already exists' not in health_matcher.stderr"
+    - _health_matcher.rc != 0
+    - "'already exists' not in _health_matcher.stderr"
   when: >
-    notification_matchers.rc != 0 or
-    'system-health' not in (notification_matchers.stdout | default('[]'))
+    _notification_matchers.rc != 0 or
+    'system-health' not in (_notification_matchers.stdout | from_json | map(attribute='name') | list)

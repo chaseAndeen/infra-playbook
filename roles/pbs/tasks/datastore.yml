@@ -26,7 +26,7 @@
     state: directory
     owner: "{{ pbs_nfs_user }}"
     group: "{{ pbs_nfs_group }}"
-    mode: "0755"
+    mode: "0750"
 
 - name: PBS | Mount TrueNAS NFS share
   ansible.posix.mount:
@@ -36,12 +36,12 @@
     opts: "{{ pbs_nfs_opts }}"
     state: mounted
 
-- name: PBS | Ensure mount point ownership after mount
+- name: PBS | Ensure mount point owned by NFS user
   ansible.builtin.file:
     path: "{{ pbs_datastore_path }}"
     owner: "{{ pbs_nfs_user }}"
     group: "{{ pbs_nfs_group }}"
-    mode: "0755"
+    mode: "0750"
 
 - name: PBS | Write datastore config
   ansible.builtin.template:
@@ -50,7 +50,7 @@
     owner: root
     group: backup
     mode: "0640"
-  notify: Restart PBS
+  notify: Restart proxmox-backup
 
 - name: PBS | Write prune config
   ansible.builtin.template:
@@ -59,21 +59,21 @@
     owner: root
     group: backup
     mode: "0640"
-  notify: Restart PBS
+  notify: Restart proxmox-backup
 
 - name: PBS | Fetch TLS certificate fingerprint
   ansible.builtin.shell: >
     proxmox-backup-manager cert info |
     grep -i 'Fingerprint (sha256)' |
     awk '{print $NF}'
-  register: pbs_cert_fingerprint
+  register: _pbs_cert_fingerprint
   changed_when: false
 
 - name: PBS | Store fingerprint in SSM
   community.aws.ssm_parameter:
     name: "/infra/pbs/fingerprint"
     description: "PBS TLS certificate fingerprint for Proxmox storage registration"
-    value: "{{ pbs_cert_fingerprint.stdout | trim }}"
+    value: "{{ _pbs_cert_fingerprint.stdout | trim }}"
     string_type: "String"
     overwrite_value: "always"
     region: "{{ aws_region }}"

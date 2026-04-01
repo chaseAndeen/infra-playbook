@@ -5,7 +5,7 @@
     --name "/infra/pbs/fingerprint"
     --profile {{ aws_profile }}
     --region {{ aws_region }}
-  register: pbs_fingerprint_check
+  register: _pbs_fingerprint_check
   delegate_to: localhost
   become: false
   failed_when: false
@@ -14,11 +14,11 @@
 - name: PVE | Skip PBS registration (PBS not deployed yet)
   ansible.builtin.debug:
     msg: "PBS fingerprint not found in SSM — skipping. Run playbooks/pbs.yml first."
-  when: pbs_fingerprint_check.rc != 0
+  when: _pbs_fingerprint_check.rc != 0
 
 - name: PVE | End host if PBS not deployed
   ansible.builtin.meta: end_host
-  when: pbs_fingerprint_check.rc != 0
+  when: _pbs_fingerprint_check.rc != 0
 
 - name: PVE | Fetch PBS fingerprint from SSM
   ansible.builtin.set_fact:
@@ -31,7 +31,7 @@
 
 - name: PVE | Check if PBS storage already registered
   ansible.builtin.command: pvesm status --storage {{ pbs_storage_id }}
-  register: pbs_storage_check
+  register: _pbs_storage_check
   changed_when: false
   failed_when: false
 
@@ -45,12 +45,12 @@
     --fingerprint {{ pbs_fingerprint }}
     --content backup
   no_log: true
-  when: pbs_storage_check.rc != 0
+  when: _pbs_storage_check.rc != 0
   changed_when: true
 
 - name: PVE | Check existing backup jobs
   ansible.builtin.command: pvesh get /cluster/backup --output-format json
-  register: existing_backup_jobs
+  register: _existing_backup_jobs
   changed_when: false
 
 - name: PVE | Create daily backup job for all VMs
@@ -65,19 +65,35 @@
     --fleecing 0
     --repeat-missed 0
     --enabled 1
-  register: backup_job_create
-  changed_when: backup_job_create.rc == 0
+  register: _backup_job_create
+  changed_when: _backup_job_create.rc == 0
   failed_when:
-    - backup_job_create.rc != 0
-    - "'already exists' not in backup_job_create.stderr"
+    - _backup_job_create.rc != 0
+    - "'already exists' not in _backup_job_create.stderr"
   when: >
-    existing_backup_jobs.stdout | from_json |
+    _existing_backup_jobs.stdout | from_json |
     selectattr('storage', 'equalto', pbs_storage_id) |
     list | length == 0
 
+- name: PVE | Ensure backup job uses notification-system mode
+  vars:
+    _backup_job: >-
+      {{
+        _existing_backup_jobs.stdout | from_json |
+        selectattr('storage', 'equalto', pbs_storage_id) |
+        list | first | default({})
+      }}
+  ansible.builtin.command: >
+    pvesh set /cluster/backup/{{ _backup_job.id }}
+    --notification-mode notification-system
+  when:
+    - _backup_job | length > 0
+    - (_backup_job.get('notification-mode', '') != 'notification-system')
+  changed_when: true
+
 - name: PVE | Discover all VMs on this node
-  ansible.builtin.command: pvesh get /nodes/{{ ansible_facts['hostname'] }}/qemu --output-format json
-  register: pve_all_vms
+  ansible.builtin.command: pvesh get /nodes/{{ inventory_hostname }}/qemu --output-format json
+  register: _pve_all_vms
   changed_when: false
 
 - name: PVE | Build backup exclusion list (templates + PBS VM)
@@ -85,12 +101,12 @@
     pbs_exclude_vmids: >-
       {{
         (
-          (pve_all_vms.stdout | from_json |
+          (_pve_all_vms.stdout | from_json |
             selectattr('template', 'defined') |
             selectattr('template', 'equalto', 1) |
             map(attribute='vmid') | list)
           +
-          (pve_all_vms.stdout | from_json |
+          (_pve_all_vms.stdout | from_json |
             selectattr('name', 'equalto', groups['pbs'][0]) |
             map(attribute='vmid') | list)
         ) | map('string') | list | unique | sort
@@ -100,7 +116,7 @@
   vars:
     _backup_job: >-
       {{
-        existing_backup_jobs.stdout | from_json |
+        _existing_backup_jobs.stdout | from_json |
         selectattr('storage', 'equalto', pbs_storage_id) |
         list | first | default({})
       }}

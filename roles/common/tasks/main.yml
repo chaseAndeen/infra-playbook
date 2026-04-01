@@ -7,10 +7,6 @@
   ansible.builtin.import_tasks: storage.yml
   tags: [storage]
 
-- name: PVE | ACME certificate
-  ansible.builtin.import_tasks: acme.yml
-  tags: [acme]
-
 - name: PVE | Firewall
   ansible.builtin.import_tasks: firewall.yml
   tags: [firewall]
@@ -27,10 +23,10 @@
   ansible.builtin.import_tasks: notifications.yml
   tags: [notifications]
 
-- name: PVE | Two-factor authentication
-  ansible.builtin.import_tasks: tfa.yml
-  tags: [tfa]
-
 - name: PVE | PBS storage registration
   ansible.builtin.import_tasks: pbs.yml
   tags: [pbs]
+
+- name: PVE | Teleport node agent
+  ansible.builtin.import_tasks: teleport_agent.yml
+  tags: [teleport_agent]

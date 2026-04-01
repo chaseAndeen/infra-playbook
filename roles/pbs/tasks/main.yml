@@ -15,11 +15,11 @@
   ansible.builtin.import_tasks: users.yml
   tags: [users]
 
-- name: PBS | Two-factor authentication
-  ansible.builtin.import_tasks: tfa.yml
-  tags: [tfa]
-
 - name: PBS | Notification configuration
   ansible.builtin.import_tasks: notifications.yml
   tags: [notifications]
+
+- name: PBS | Teleport node agent
+  ansible.builtin.import_tasks: teleport_agent.yml
+  tags: [teleport_agent]
 

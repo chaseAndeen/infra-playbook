@@ -1,0 +1,116 @@
+---
+- name: Teleport Agent | Resolve install_agent flag from app entry
+  ansible.builtin.set_fact:
+    _teleport_install_agent: >-
+      {{ (teleport_apps |
+          selectattr('name', 'equalto', teleport_node_app_name) |
+          list | first | default({})).get('install_agent', false) | bool }}
+
+- name: Teleport Agent | Require teleport_agent_version to be set
+  ansible.builtin.fail:
+    msg: >
+      teleport_agent_version must be set in group_vars/all.yml.
+      Check your Teleport server version with: teleport version
+  when:
+    - _teleport_install_agent
+    - not teleport_agent_version
+
+- name: Teleport Agent | Check if teleport binary exists
+  ansible.builtin.stat:
+    path: /usr/local/bin/teleport
+  register: _teleport_binary
+  when: _teleport_install_agent
+
+- name: Teleport Agent | Download teleport deb
+  ansible.builtin.get_url:
+    url: "https://cdn.teleport.dev/teleport_{{ teleport_agent_version }}_amd64.deb"
+    dest: "/tmp/teleport_{{ teleport_agent_version }}_amd64.deb"
+    mode: "0644"
+  when:
+    - _teleport_install_agent
+    - not _teleport_binary.stat.exists
+
+- name: Teleport Agent | Install teleport deb
+  ansible.builtin.apt:
+    deb: "/tmp/teleport_{{ teleport_agent_version }}_amd64.deb"
+  when:
+    - _teleport_install_agent
+    - not _teleport_binary.stat.exists
+
+- name: Teleport Agent | Fetch current enrollment token from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/teleport/node_token"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile {{ aws_profile }}
+    --region {{ aws_region }}
+  register: _teleport_node_token
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  no_log: true
+  when: _teleport_install_agent
+
+- name: Teleport Agent | Check if node config exists
+  ansible.builtin.stat:
+    path: /etc/teleport.yaml
+  register: _teleport_node_config
+  when: _teleport_install_agent
+
+- name: Teleport Agent | Read token from existing node config
+  ansible.builtin.command: "grep -oP '(?<=auth_token: ).*' /etc/teleport.yaml"
+  register: _config_token_raw
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - _teleport_install_agent
+    - _teleport_node_config.stat.exists
+
+- name: Teleport Agent | Determine if reconfiguration is needed
+  ansible.builtin.set_fact:
+    _teleport_needs_reconfig: >-
+      {{ not _teleport_node_config.stat.exists or
+         (_config_token_raw.stdout | default('') | trim != _teleport_node_token.stdout | trim) }}
+  when: _teleport_install_agent
+
+- name: Teleport Agent | Remove stale config before reconfiguration
+  ansible.builtin.file:
+    path: /etc/teleport.yaml
+    state: absent
+  when:
+    - _teleport_install_agent
+    - _teleport_needs_reconfig
+    - _teleport_node_config.stat.exists
+
+- name: Teleport Agent | Generate node config
+  ansible.builtin.command: >
+    teleport configure
+    --roles=node
+    --token={{ _teleport_node_token.stdout | trim }}
+    --proxy={{ teleport_domain }}:{{ teleport_proxy_port }}
+    --output=/etc/teleport.yaml
+  when:
+    - _teleport_install_agent
+    - _teleport_needs_reconfig
+  changed_when: true
+  no_log: true
+  register: _teleport_config_written
+
+- name: Teleport Agent | Restart teleport after config change
+  ansible.builtin.systemd:
+    name: teleport
+    state: restarted
+    enabled: true
+  when:
+    - _teleport_install_agent
+    - _teleport_config_written is changed
+
+- name: Teleport Agent | Enable and start teleport service
+  ansible.builtin.systemd:
+    name: teleport
+    enabled: true
+    state: started
+  when: _teleport_install_agent

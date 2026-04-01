@@ -4,6 +4,9 @@ proxmox_ssh_port: 2222
 proxmox_debian_release: trixie
 
 # --- NFS ---
+# pbs_nfs_uid/gid must match the owner of the TrueNAS dataset (pbs_user uid/gid).
+# TrueNAS NFS export must use mapall pointing to that user so all PBS writes
+# (which run as the 'backup' system user) are mapped to pbs_nfs_uid on TrueNAS.
 pbs_nfs_opts: "defaults,nofail,_netdev,nfsvers=4"
 pbs_nfs_uid: 2000
 pbs_nfs_gid: 2000
@@ -20,4 +23,12 @@ pbs_gc_schedule: weekly
 fail2ban_bantime: 1h
 fail2ban_findtime: 10m
 fail2ban_maxretry: 5
+
+# --- PBS Web UI ---
+pbs_gui_port: 8007
+
+# --- Teleport node agent ---
+teleport_node_app_name: "proxmox-pbs"
+teleport_agent_version: ""
+teleport_proxy_port: 443
 

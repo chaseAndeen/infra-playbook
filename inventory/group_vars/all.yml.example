@@ -14,9 +14,53 @@ ansible_service_user: ansible
 
 # --- Teleport ---
 teleport_domain: "teleport.infra.example.com"
+# Optional: issue a wildcard cert for this domain and add to Teleport https_keypairs.
+# Required if any teleport_apps use a custom public_addr outside the teleport_domain.
+teleport_wildcard_domain: ""
+# Pin to match your Teleport server version (teleport version on the server).
+# Update here and re-run --tags teleport_agent when upgrading Teleport.
+teleport_agent_version: "17.0.0"
 
-# --- Infrastructure hosts (used by Teleport app proxy) ---
+# --- Infrastructure hosts ---
+# truenas_host is used as the Teleport app public_addr and Host header — point Unbound to the Teleport VM IP.
 truenas_host: "truenas.infra.example.com"
+
+# --- Teleport App Proxy ---
+# Add an entry here for each web UI to expose through Teleport.
+# Apps with public_addr are served at that hostname directly (requires Unbound → Teleport IP + wildcard cert).
+teleport_apps:
+  - name: proxmox-pve
+    description: "Proxmox VE"
+    uri: "https://192.168.x.x:8006"
+    public_addr: "pve-01.{{ teleport_domain }}"
+    insecure_skip_verify: true
+    install_agent: true
+    labels:
+      env: infra
+      type: hypervisor
+  - name: proxmox-pbs
+    description: "Proxmox Backup Server"
+    uri: "https://192.168.x.x:8007"
+    public_addr: "pbs-01.{{ teleport_domain }}"
+    insecure_skip_verify: true
+    install_agent: true
+    labels:
+      env: infra
+      type: backup
+  - name: truenas
+    description: "TrueNAS"
+    uri: "https://192.168.x.x"
+    public_addr: "{{ truenas_host }}"
+    insecure_skip_verify: true
+    install_agent: false
+    rewrite:
+      headers:
+        - "Host: {{ truenas_host }}"
+      redirect:
+        - "https://192.168.x.x"
+    labels:
+      env: infra
+      type: storage
 
 # --- SMTP Notifications ---
 smtp_server: "email-smtp.us-east-1.amazonaws.com"
@@ -30,9 +74,7 @@ cloudflare_zone_id: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/cloudf
 smtp_user: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/user', profile=aws_profile, region=aws_region) }}"
 smtp_pass: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/pass', profile=aws_profile, region=aws_region) }}"
 
-# --- SSL Cert ---
-cert_domain_suffix: "infra.example.com"
-cert_domain: "{{ inventory_hostname }}.{{ cert_domain_suffix }}"
+# --- SSL Cert (Teleport only) ---
 cert_email: admin@example.com
 
 # --- Firewall Settings ---
@@ -59,6 +101,7 @@ pve_snippet_path: "/var/lib/vz/snippets"
 
 proxmox_ssh_port: 2222
 proxmox_gui_port: 8006
+pbs_gui_port: 8007
 proxmox_user: your-admin-username
 proxmox_debian_release: trixie
 

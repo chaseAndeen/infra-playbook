@@ -1,24 +1,24 @@
 ---
-- name: Teleport | Check if admin user exists
+- name: Teleport Users | Check if admin user exists
   ansible.builtin.command: tctl users ls
-  register: teleport_users
+  register: _teleport_users
   changed_when: false
 
-- name: Teleport | Create admin user
+- name: Teleport Users | Create admin user
   ansible.builtin.command: >
     tctl users add {{ proxmox_user }}
     --roles=editor,access
     --logins={{ proxmox_user }},root
-  register: teleport_user_add
-  changed_when: teleport_user_add.rc == 0
+  register: _teleport_user_add
+  changed_when: _teleport_user_add.rc == 0
   failed_when:
-    - teleport_user_add.rc != 0
-    - "'already exists' not in teleport_user_add.stderr"
-  when: proxmox_user not in teleport_users.stdout
+    - _teleport_user_add.rc != 0
+    - "'already exists' not in _teleport_user_add.stderr"
+  when: proxmox_user not in _teleport_users.stdout
 
-- name: Teleport | Show invite link
+- name: Teleport Users | Show invite link
   ansible.builtin.debug:
-    msg: "{{ teleport_user_add.stdout_lines }}"
+    msg: "{{ _teleport_user_add.stdout_lines }}"
   when:
-    - proxmox_user not in teleport_users.stdout
-    - teleport_user_add.rc == 0
+    - proxmox_user not in _teleport_users.stdout
+    - _teleport_user_add.rc == 0

@@ -19,21 +19,72 @@
 - name: Teleport ACME | Check if certificate exists
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ teleport_domain }}/fullchain.pem"
-  register: teleport_cert
+  register: _teleport_cert
 
 - name: Teleport ACME | Obtain certificate via DNS-01 challenge
   ansible.builtin.command: >
     certbot certonly
     --dns-cloudflare
     --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini
-    --dns-cloudflare-propagation-seconds 30
+    --dns-cloudflare-propagation-seconds {{ certbot_propagation_seconds }}
     -d {{ teleport_domain }}
+    -d *.{{ teleport_domain }}
     --email {{ cert_email }}
     --agree-tos
     --non-interactive
-  when: not teleport_cert.stat.exists
-  register: certbot_issue
-  changed_when: certbot_issue.rc == 0
+  when: not _teleport_cert.stat.exists
+  register: _certbot_issue
+  changed_when: _certbot_issue.rc == 0
+
+- name: Teleport ACME | Check if wildcard SAN is present in existing cert
+  ansible.builtin.command: >
+    openssl x509 -in /etc/letsencrypt/live/{{ teleport_domain }}/fullchain.pem -noout -text
+  register: _cert_info
+  changed_when: false
+  when: _teleport_cert.stat.exists
+
+- name: Teleport ACME | Expand certificate to add wildcard SAN
+  ansible.builtin.command: >
+    certbot certonly
+    --dns-cloudflare
+    --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini
+    --dns-cloudflare-propagation-seconds {{ certbot_propagation_seconds }}
+    -d {{ teleport_domain }}
+    -d *.{{ teleport_domain }}
+    --email {{ cert_email }}
+    --agree-tos
+    --non-interactive
+    --expand
+  when:
+    - _teleport_cert.stat.exists
+    - "'*.' + teleport_domain not in _cert_info.stdout"
+  register: _certbot_expand
+  changed_when: _certbot_expand.rc == 0
+  notify: Restart teleport
+
+- name: Teleport ACME | Check if wildcard domain cert exists
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ teleport_wildcard_domain }}/fullchain.pem"
+  register: _infra_wildcard_cert
+  when: teleport_wildcard_domain | length > 0
+
+- name: Teleport ACME | Obtain wildcard domain cert via DNS-01 challenge
+  ansible.builtin.command: >
+    certbot certonly
+    --dns-cloudflare
+    --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini
+    --dns-cloudflare-propagation-seconds {{ certbot_propagation_seconds }}
+    -d {{ teleport_wildcard_domain }}
+    -d *.{{ teleport_wildcard_domain }}
+    --email {{ cert_email }}
+    --agree-tos
+    --non-interactive
+  when:
+    - teleport_wildcard_domain | length > 0
+    - not _infra_wildcard_cert.stat.exists
+  register: _certbot_wildcard_issue
+  changed_when: _certbot_wildcard_issue.rc == 0
+  notify: Restart teleport
 
 - name: Teleport ACME | Install renewal deploy hook to restart Teleport
   ansible.builtin.copy:

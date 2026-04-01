@@ -3,6 +3,10 @@
   ansible.builtin.import_tasks: acme.yml
   tags: [acme]
 
+- name: Teleport | Node enrollment token
+  ansible.builtin.import_tasks: nodes.yml
+  tags: [nodes, config]
+
 - name: Teleport | Configuration
   ansible.builtin.import_tasks: config.yml
   tags: [config]
@@ -14,11 +18,3 @@
 - name: Teleport | Admin user
   ansible.builtin.import_tasks: users.yml
   tags: [users]
-
-- name: Teleport | Application proxy registrations
-  ansible.builtin.import_tasks: apps.yml
-  tags: [apps]
-
-- name: Teleport | Node enrollment token
-  ansible.builtin.import_tasks: nodes.yml
-  tags: [nodes]

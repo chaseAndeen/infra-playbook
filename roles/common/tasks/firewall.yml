@@ -58,12 +58,3 @@
     != host_fw_rendered
   notify: Restart pve-firewall
 
-- name: Firewall | Ensure pve-firewall service is running (best effort)
-  ansible.builtin.command: pve-firewall status
-  register: fw_status
-  changed_when: false
-  failed_when: false
-
-- name: Firewall | Show firewall status
-  ansible.builtin.debug:
-    var: fw_status.stdout_lines

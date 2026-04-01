@@ -1,40 +1,44 @@
 ---
-# Creates a reusable node enrollment token stored in SSM.
-# VMs use this token to register with the Teleport cluster.
-# The token is written to SSM so it can be used by other playbooks.
+# Generates a static node enrollment token stored in SSM.
+# Static tokens are embedded in the Teleport auth_service config, so they remain
+# valid across Teleport rebuilds as long as the config is re-applied from this playbook.
+#
+# Token regeneration logic:
+#   - No SSM token yet               → generate (first ever run)
+#   - SSM token exists, no config    → generate (fresh Teleport VM, rotate credentials)
+#   - SSM token exists, config exists → keep (idempotent re-run)
 
 - name: Teleport Nodes | Check if enrollment token exists in SSM
   ansible.builtin.command: >
     aws ssm get-parameter
     --name "/infra/teleport/node_token"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
     --profile {{ aws_profile }}
     --region {{ aws_region }}
-  register: node_token_check
+  register: _node_token_check
   delegate_to: localhost
   become: false
   changed_when: false
   failed_when: false
 
-- name: Teleport Nodes | Generate node enrollment token
-  ansible.builtin.command: >
-    tctl tokens add
-    --type=node
-    --ttl=87600h
-    --format=text
-  register: node_token_generate
-  changed_when: true
-  when: node_token_check.rc != 0
+- name: Teleport Nodes | Check if Teleport config exists
+  ansible.builtin.stat:
+    path: "{{ teleport_config_path }}"
+  register: _teleport_config_stat
 
-- name: Teleport Nodes | Store enrollment token in SSM
+- name: Teleport Nodes | Generate and store static enrollment token in SSM
   ansible.builtin.command: >
     aws ssm put-parameter
     --name "/infra/teleport/node_token"
-    --value "{{ node_token_generate.stdout | trim }}"
+    --value "{{ lookup('password', '/dev/null length=32 chars=ascii_lowercase,digits') }}"
     --type SecureString
     --overwrite
     --profile {{ aws_profile }}
     --region {{ aws_region }}
   delegate_to: localhost
   become: false
-  when: node_token_check.rc != 0
+  when: _node_token_check.rc != 0 or not _teleport_config_stat.stat.exists
   no_log: true
+  changed_when: true

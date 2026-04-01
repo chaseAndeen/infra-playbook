@@ -14,7 +14,7 @@
   notify: Restart fail2ban
 
 - name: Ensure fail2ban is enabled and running
-  ansible.builtin.service:
+  ansible.builtin.systemd:
     name: fail2ban
     state: started
     enabled: true

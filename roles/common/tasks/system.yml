@@ -1,15 +1,15 @@
 ---
-- name: Remove enterprise repo
+- name: PVE System | Remove enterprise repo
   ansible.builtin.file:
     path: /etc/apt/sources.list.d/pve-enterprise.sources
     state: absent
 
-- name: Remove ceph repo
+- name: PVE System | Remove ceph repo
   ansible.builtin.file:
     path: /etc/apt/sources.list.d/ceph.sources
     state: absent
 
-- name: Add no-subscription repo
+- name: PVE System | Add no-subscription repo
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/pve-no-subscription.sources
     content: |
@@ -22,48 +22,39 @@
     group: root
     mode: '0644'
 
-- name: Update apt cache and upgrade system
-  ansible.builtin.apt:
-    update_cache: true
-    upgrade: dist
-
-- name: Install unattended-upgrades packages
-  ansible.builtin.apt:
-    name:
-      - unattended-upgrades
-      - apt-listchanges
-    state: present
-
-- name: Enable unattended upgrades
-  ansible.builtin.copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
-    mode: '0644'
-    content: |
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "1";
-
-- name: Fetch Proxmox user list
+- name: PVE System | Fetch Proxmox user list
   ansible.builtin.command: pveum user list
-  register: pve_users
+  register: _pve_users
   changed_when: false
 
-- name: Ensure user exists in Proxmox
+- name: PVE System | Ensure user exists in Proxmox
   ansible.builtin.command: "pveum user add {{ proxmox_user }}@pam"
-  when: (proxmox_user ~ '@pam') not in (pve_users.stdout | string)
+  when: (proxmox_user ~ '@pam') not in (_pve_users.stdout | string)
   changed_when: true
 
-- name: Check ACLs
+- name: PVE System | Ensure admin user is enabled in Proxmox
+  ansible.builtin.command: "pveum user modify {{ proxmox_user }}@pam --enable 1"
+  changed_when: false
+  failed_when: false
+
+- name: PVE System | Check ACLs
   ansible.builtin.command: pveum acl list
-  register: pve_acl
+  register: _pve_acl
   changed_when: false
 
-- name: Grant Administrator role
+- name: PVE System | Grant Administrator role
   ansible.builtin.command: "pveum acl modify / -user {{ proxmox_user }}@pam -role Administrator"
   when: >
-    (proxmox_user ~ '@pam.*Administrator') not in (pve_acl.stdout | regex_replace('\s+', ' '))
+    (proxmox_user ~ '@pam.*Administrator') not in (_pve_acl.stdout | regex_replace('\s+', ' '))
   changed_when: true
 
-- name: Disable root login to Proxmox UI
+- name: PVE System | Disable root login to Proxmox UI
   ansible.builtin.command: "pveum user modify root@pam --enable 0"
   changed_when: false
   failed_when: false
+
+- name: PVE System | Remove legacy vzdump mailto (prevents root@host emails)
+  ansible.builtin.lineinfile:
+    path: /etc/vzdump.conf
+    regexp: '^mailto\s*:'
+    state: absent

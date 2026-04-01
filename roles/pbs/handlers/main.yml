@@ -1,10 +1,10 @@
 ---
-- name: Restart PBS proxy
+- name: Restart proxmox-backup-proxy
   ansible.builtin.systemd:
     name: proxmox-backup-proxy
     state: restarted
 
-- name: Restart PBS
+- name: Restart proxmox-backup
   ansible.builtin.systemd:
     name: proxmox-backup
     state: restarted

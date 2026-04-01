@@ -2,61 +2,68 @@
 - name: PBS | Check existing users
   ansible.builtin.command: >
     proxmox-backup-manager user list --output-format json
-  register: pbs_users
+  register: _pbs_users
   changed_when: false
 
 - name: PBS | Create admin user
   ansible.builtin.command: >
     proxmox-backup-manager user create {{ proxmox_user }}@pam
     --comment "Admin"
-  register: admin_create
-  changed_when: admin_create.rc == 0
+    --enable true
+  register: _admin_create
+  changed_when: _admin_create.rc == 0
   failed_when:
-    - admin_create.rc != 0
-    - "'already exists' not in admin_create.stderr"
-  when: "(proxmox_user + '@pam') not in pbs_users.stdout"
+    - _admin_create.rc != 0
+    - "'already exists' not in _admin_create.stderr"
+  when: (proxmox_user + '@pam') not in (_pbs_users.stdout | from_json | map(attribute='userid') | list)
+
+- name: PBS | Ensure admin user is enabled
+  ansible.builtin.command: >
+    proxmox-backup-manager user update {{ proxmox_user }}@pam --enable true
+  changed_when: false
+  failed_when: false
 
 - name: PBS | Grant admin user full Admin ACL
   ansible.builtin.command: >
     proxmox-backup-manager acl update /
     Admin
     --auth-id {{ proxmox_user }}@pam
-  register: admin_acl
-  changed_when: admin_acl.rc == 0
+  register: _admin_acl
+  changed_when: false
 
 - name: PBS | Create dedicated backup user
   ansible.builtin.command: >
     proxmox-backup-manager user create {{ pbs_backup_user }}
     --password {{ pbs_backup_user_password }}
-  register: user_create
-  changed_when: user_create.rc == 0
+  register: _user_create
+  changed_when: _user_create.rc == 0
   failed_when:
-    - user_create.rc != 0
-    - "'already exists' not in user_create.stderr"
+    - _user_create.rc != 0
+    - "'already exists' not in _user_create.stderr"
   no_log: true
-  when: pbs_backup_user not in pbs_users.stdout
+  when: pbs_backup_user not in (_pbs_users.stdout | from_json | map(attribute='userid') | list)
 
 - name: PBS | Grant backup user DatastoreBackup ACL
   ansible.builtin.command: >
     proxmox-backup-manager acl update /datastore/{{ pbs_datastore_name }}
     DatastoreBackup
     --auth-id {{ pbs_backup_user }}
-  register: acl_backup
-  changed_when: acl_backup.rc == 0
+  register: _acl_backup
+  changed_when: false
 
 - name: PBS | Grant backup user DatastoreAudit ACL
   ansible.builtin.command: >
     proxmox-backup-manager acl update /datastore/{{ pbs_datastore_name }}
     DatastoreAudit
     --auth-id {{ pbs_backup_user }}
-  register: acl_audit
-  changed_when: acl_audit.rc == 0
+  register: _acl_audit
+  changed_when: false
 
 - name: PBS | Disable root@pam login
   ansible.builtin.command: >
     proxmox-backup-manager user update root@pam --enable false
-  register: root_disable
-  changed_when: root_disable.rc == 0
+  register: _root_disable
+  changed_when: false
   failed_when:
-    - root_disable.rc != 0
-    - "'no changes' not in root_disable.stderr"
+    - _root_disable.rc != 0
+    - "'no changes' not in _root_disable.stderr"

@@ -10,14 +10,22 @@ auth_service:
   enabled: true
   cluster_name: {{ teleport_domain }}
   proxy_protocol: off
+  session_recording: {{ teleport_session_recording }}
+  tokens:
+    - "node:{{ teleport_node_token }}"
 
 proxy_service:
   enabled: true
   public_addr: {{ teleport_domain }}:443
   web_listen_addr: 0.0.0.0:443
+  tunnel_listen_addr: 0.0.0.0:3024
   https_keypairs:
     - cert_file: /etc/letsencrypt/live/{{ teleport_domain }}/fullchain.pem
       key_file: /etc/letsencrypt/live/{{ teleport_domain }}/privkey.pem
+{% if teleport_wildcard_domain | length > 0 %}
+    - cert_file: /etc/letsencrypt/live/{{ teleport_wildcard_domain }}/fullchain.pem
+      key_file: /etc/letsencrypt/live/{{ teleport_wildcard_domain }}/privkey.pem
+{% endif %}
 
 ssh_service:
   enabled: true
@@ -26,4 +34,34 @@ ssh_service:
 
 app_service:
   enabled: true
-  apps: []
+  apps:
+{% for app in teleport_apps %}
+    - name: {{ app.name }}
+      description: "{{ app.description }}"
+      uri: "{{ app.uri }}"
+      insecure_skip_verify: {{ app.insecure_skip_verify | lower }}
+{% if app.public_addr is defined %}
+      public_addr: "{{ app.public_addr }}"
+{% endif %}
+{% if app.rewrite is defined %}
+      rewrite:
+{% if app.rewrite.headers is defined %}
+        headers:
+{% for header in app.rewrite.headers %}
+          - "{{ header }}"
+{% endfor %}
+{% endif %}
+{% if app.rewrite.redirect is defined %}
+        redirect:
+{% for url in app.rewrite.redirect %}
+          - "{{ url }}"
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if app.labels is defined %}
+      labels:
+{% for key, value in app.labels.items() %}
+        {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+{% endfor %}

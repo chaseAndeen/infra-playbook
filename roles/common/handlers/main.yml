@@ -1,10 +1,10 @@
 ---
 - name: Restart pve-firewall
-  ansible.builtin.service:
+  ansible.builtin.systemd:
     name: pve-firewall
     state: restarted
 
-- name: Restart PVE Proxy
+- name: Restart pveproxy
   ansible.builtin.systemd:
     name: pveproxy
     state: restarted

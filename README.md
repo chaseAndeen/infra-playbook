@@ -10,7 +10,7 @@ Teleport is the single access point for all infrastructure:
 
 - **SSH** — all VM access goes through Teleport's SSH CA. No static keys needed after initial bootstrap.
 - **Web UIs** — PVE, PBS, TrueNAS, and future services are registered as Teleport app proxy applications. One login at `teleport.infra.kernelstack.dev` gives access to everything.
-- **Break-glass** — local PAM admin user exists on PVE and PBS for direct access if Teleport is unavailable. TOTP is enforced on PVE PAM; PBS requires manual TOTP setup via the web UI.
+- **Break-glass** — local PAM admin user exists on PVE and PBS for direct access if Teleport is unavailable. TOTP is not enforced at the realm level — configure it per-user via the web UI after first login.
 
 ---
 
@@ -74,12 +74,12 @@ ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
 
 ### 3. Proxmox — post-install configuration
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --skip-tags pbs
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --skip-tags pbs,teleport_agent
 ```
-Configures repos, ZFS storage, firewall, ACME cert, Terraform/Packer API users, and enforces TOTP on the PAM realm.
+Configures repos, ZFS storage, firewall, notifications, and Terraform/Packer API users. PBS registration and Teleport agent enrollment are skipped — PBS isn't deployed yet and the enrollment token doesn't exist in SSM until step 6.
 
 **Post-run:**
-- Log into the PVE web UI — you will be prompted to enrol an authenticator app before proceeding.
+- Log into the PVE web UI and set up TOTP under your username → Two Factor → Add TOTP.
 
 ### 4. PBS — provision and configure
 ```bash
@@ -88,7 +88,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml
 Configures repos, NFS mount, datastore, prune/GC schedules, firewall, and users.
 
 **Post-run:**
-- PBS does not support realm-level TFA enforcement. Log into the PBS web UI and set up TOTP manually:
+- Log into the PBS web UI and set up TOTP manually:
   Administration → User Management → `sysop@pam` → TFA → Add TOTP
 
 ### 5. Proxmox — register PBS storage and backup job
@@ -105,31 +105,23 @@ Obtains a TLS certificate via Cloudflare DNS-01 challenge (no inbound port 443 r
 
 **Post-run:**
 - Use the invite link printed by the `users` task to complete Teleport admin account setup
-- Ensure `teleport.infra.kernelstack.dev` has a Cloudflare DNS A record pointing at the Teleport VM
+- Configure the following OPNsense Unbound host overrides, all pointing at the Teleport VM IP:
+  - `teleport` → `infra.kernelstack.dev`
+  - `*.teleport` → `infra.kernelstack.dev` (wildcard for app subdomains)
+  - `datavault` → `infra.kernelstack.dev` (TrueNAS served via Teleport `public_addr`)
 
 ### 7. Enroll nodes
-After Teleport is configured, enroll PVE, PBS, and any other VMs using the token stored in SSM.
+Node enrollment is automated. Each app entry in `teleport_apps` has an `install_agent` bool that controls whether the Teleport node agent is installed on the corresponding host. Set `install_agent: true` for any host you want enrolled.
 
-Retrieve the token:
 ```bash
-NODE_TOKEN=$(aws ssm get-parameter \
-  --name /infra/teleport/node_token \
-  --with-decryption \
-  --query Parameter.Value \
-  --output text \
-  --profile InfraProvisioner)
+# Enroll PVE nodes (runs as part of site.yml, or standalone):
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags teleport_agent
+
+# Enroll PBS nodes:
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags teleport_agent
 ```
 
-On each VM, generate a config and enable the service:
-```bash
-sudo teleport configure \
-  --roles=node \
-  --token=$NODE_TOKEN \
-  --proxy=teleport.infra.kernelstack.dev:443 \
-  --output=/etc/teleport.yaml
-
-sudo systemctl enable --now teleport
-```
+The playbook downloads the Teleport `.deb` directly (Debian Trixie is not in the Teleport APT repo), configures the node using the token from SSM, and enables the service. Re-runs are idempotent — the binary and config are only written if absent.
 
 ---
 
@@ -143,28 +135,32 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags base
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags base
 ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
 
-# ACME certificate renewal (PVE — Cloudflare DNS-01)
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags acme
-
 # TLS certificate renewal (Teleport — certbot runs automatically via systemd timer)
 # To force a manual renewal:
 ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags acme
 
-# TFA enforcement check
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags tfa
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags tfa
+# System (repos, PVE users, vzdump config)
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags system
+
+# Storage (ZFS provisioning, local-lvm)
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags storage
 
 # Firewall rules
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags firewall
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags firewall
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags network
 ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags firewall
 
 # Notification configuration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags notifications
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags notifications
 
-# Teleport app registrations
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags apps
+# Teleport app registrations (add/update entries in teleport_apps in group_vars/all.yml, then:)
+ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags config
+
+# Teleport node agent upgrade (update teleport_agent_version in group_vars/all.yml, then:)
+# Note: only re-installs if the binary is absent. To force upgrade, remove /usr/local/bin/teleport first.
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags teleport_agent
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags teleport_agent
 
 # PBS storage registration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
