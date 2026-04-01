@@ -33,21 +33,21 @@
   changed_when: false
   failed_when: false
 
-- name: PVE Notifications | Disable default mail-to-root matcher
+- name: PVE Notifications | Disable default-matcher (routes all events to local sendmail)
   vars:
-    _mail_to_root: >-
+    _default_matcher: >-
       {{ _notification_matchers.stdout | from_json |
-         selectattr('name', 'equalto', 'mail-to-root') |
+         selectattr('name', 'equalto', 'default-matcher') |
          list | first | default({}) }}
   ansible.builtin.command: >
-    pvesh set /cluster/notifications/matchers/mail-to-root
+    pvesh set /cluster/notifications/matchers/default-matcher
     --disable 1
   register: _disable_default
   changed_when: true
   when:
     - _notification_matchers.rc == 0
-    - _mail_to_root | length > 0
-    - not (_mail_to_root.get('disable', false) | bool)
+    - _default_matcher | length > 0
+    - not (_default_matcher.get('disable', false) | bool)
 
 - name: PVE Notifications | Create backup failure matcher
   ansible.builtin.command: >
@@ -55,7 +55,8 @@
     --name backup-failures
     --target ses-smtp
     --match-field "exact:type=vzdump"
-    --match-severity error,warning
+    --match-severity error
+    --match-severity warning
     --mode all
     --comment "Backup job failures and warnings"
   register: _backup_matcher
@@ -67,13 +68,31 @@
     _notification_matchers.rc != 0 or
     'backup-failures' not in (_notification_matchers.stdout | from_json | map(attribute='name') | list)
 
+- name: PVE Notifications | Fix backup-failures matcher severity if incorrect
+  vars:
+    _backup_matcher_existing: >-
+      {{ _notification_matchers.stdout | from_json |
+         selectattr('name', 'equalto', 'backup-failures') |
+         list | first | default({}) }}
+  ansible.builtin.command: >
+    pvesh set /cluster/notifications/matchers/backup-failures
+    --match-severity error
+    --match-severity warning
+  when:
+    - _notification_matchers.rc == 0
+    - _backup_matcher_existing | length > 0
+    - (_backup_matcher_existing.get('match-severity', []) | sort) != ['error', 'warning']
+  changed_when: true
+
 - name: PVE Notifications | Create system health matcher
   ansible.builtin.command: >
     pvesh create /cluster/notifications/matchers
     --name system-health
     --target ses-smtp
     --match-field "exact:type=system-mail"
-    --match-severity error,warning,unknown
+    --match-severity error
+    --match-severity warning
+    --match-severity unknown
     --mode all
     --comment "System health events including ZFS and storage"
   register: _health_matcher
@@ -84,3 +103,20 @@
   when: >
     _notification_matchers.rc != 0 or
     'system-health' not in (_notification_matchers.stdout | from_json | map(attribute='name') | list)
+
+- name: PVE Notifications | Fix system-health matcher severity if incorrect
+  vars:
+    _health_matcher_existing: >-
+      {{ _notification_matchers.stdout | from_json |
+         selectattr('name', 'equalto', 'system-health') |
+         list | first | default({}) }}
+  ansible.builtin.command: >
+    pvesh set /cluster/notifications/matchers/system-health
+    --match-severity error
+    --match-severity warning
+    --match-severity unknown
+  when:
+    - _notification_matchers.rc == 0
+    - _health_matcher_existing | length > 0
+    - (_health_matcher_existing.get('match-severity', []) | sort) != ['error', 'unknown', 'warning']
+  changed_when: true
