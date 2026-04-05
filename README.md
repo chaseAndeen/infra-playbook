@@ -93,6 +93,15 @@ ansible-playbook -i inventory/hosts.yml playbooks/svc.yml
 ```
 Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik (reverse proxy with Cloudflare DNS-01 wildcard cert) and Authentik (identity provider) as Docker Compose stacks.
 
+### 7. Authentik — configure users, policies, and forward auth
+```bash
+cd ../terraform/proxmox-terraform/stacks/authentik-config
+terraform init && terraform apply
+```
+Creates the admin user and group, locks down `akadmin` interactive login, creates the Traefik forward auth proxy provider, assigns it to the embedded outpost, and enforces TOTP on all logins. A one-time password-reset link for your admin account is printed to stdout.
+
+See `proxmox-terraform/README.md` for the full account setup walkthrough.
+
 ---
 
 ## Day-2 Operations

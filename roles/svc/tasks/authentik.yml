@@ -51,6 +51,32 @@
   delegate_to: localhost
   when: _authentik_postgres_password is failed
 
+- name: Authentik | Check for existing bootstrap_token in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/authentik/bootstrap_token"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _authentik_bootstrap_token
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Authentik | Generate and store bootstrap_token in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/authentik/bootstrap_token"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -hex 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _authentik_bootstrap_token is failed
+
 - name: Authentik | Create compose directory
   ansible.builtin.file:
     path: "{{ svc_compose_dir }}/authentik"

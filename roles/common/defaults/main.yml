@@ -30,8 +30,3 @@ pve_snippet_path: /var/lib/vz/snippets
 pbs_backup_schedule: "2:00"
 pbs_backup_mode: snapshot
 
-# --- Teleport node agent ---
-teleport_node_app_name: "proxmox-pve"
-teleport_agent_version: ""
-teleport_proxy_port: 443
-

@@ -105,7 +105,6 @@ jobs:
           cert_email: "admin@example.com"
           pve_host: "192.168.1.1"
           pbs_host: "192.168.1.2"
-          truenas_host: "nas.example.com"
           smtp_server: "email-smtp.us-east-1.amazonaws.com"
           smtp_port: 587
           smtp_from: "alerts@example.com"
@@ -133,6 +132,7 @@ jobs:
           svc_authentik_domain: "authentik.apps.example.com"
           authentik_secret_key: "dummy"
           authentik_postgres_password: "dummy"
+          authentik_bootstrap_token: "dummy"
           EOF
 
       - name: Syntax check bootstrap

@@ -1,4 +1,17 @@
 ---
+# svc_docker_gid is discovered in system.yml, but may be unset when running
+# with tags that skip system tasks. Discover it here as a fallback.
+- name: Traefik | Discover docker group GID
+  ansible.builtin.command: getent group docker
+  register: _docker_group_traefik
+  changed_when: false
+  when: svc_docker_gid == ""
+
+- name: Traefik | Set docker GID fact (fallback)
+  ansible.builtin.set_fact:
+    svc_docker_gid: "{{ _docker_group_traefik.stdout.split(':')[2] }}"
+  when: svc_docker_gid == ""
+
 - name: Traefik | Create compose directory
   ansible.builtin.file:
     path: "{{ svc_compose_dir }}/traefik"
@@ -15,6 +28,15 @@
     group: root
     mode: "0755"
 
+- name: Traefik | Template middlewares dynamic config
+  ansible.builtin.template:
+    src: traefik/dynamic/middlewares.yml.j2
+    dest: "{{ svc_compose_dir }}/traefik/dynamic/middlewares.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
 - name: Traefik | Template dashboard dynamic config
   ansible.builtin.template:
     src: traefik/dynamic/dashboard.yml.j2
@@ -22,6 +44,16 @@
     owner: root
     group: root
     mode: "0644"
+
+- name: Traefik | Template environment file
+  ansible.builtin.template:
+    src: traefik/.env.j2
+    dest: "{{ svc_compose_dir }}/traefik/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart traefik
 
 - name: Traefik | Template static config
   ansible.builtin.template:

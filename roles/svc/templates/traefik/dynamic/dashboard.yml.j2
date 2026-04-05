@@ -5,5 +5,8 @@ http:
       entryPoints:
         - websecure
       service: api@internal
+      middlewares:
+        - secure-headers
+        - authentik-forward-auth
       tls:
         certResolver: cloudflare

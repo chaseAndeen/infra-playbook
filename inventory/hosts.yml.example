@@ -40,14 +40,6 @@ pbs:
       pbs_backup_user: "backup-user@pbs"
       pbs_backup_user_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/pbs/backup_user_password', profile=aws_profile, region=aws_region) }}"
 
-teleport:
-  hosts:
-    teleport-01:
-      ansible_host: 192.168.x.x
-      ansible_user: "{{ ansible_service_user }}"
-      ansible_port: "{{ proxmox_ssh_port }}"
-      ansible_become: true
-
 svc:
   hosts:
     svc-01:
