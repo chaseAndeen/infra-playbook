@@ -1,0 +1,55 @@
+---
+- name: Traefik | Create compose directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/traefik"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Traefik | Create dynamic config directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/traefik/dynamic"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Traefik | Template dashboard dynamic config
+  ansible.builtin.template:
+    src: traefik/dynamic/dashboard.yml.j2
+    dest: "{{ svc_compose_dir }}/traefik/dynamic/dashboard.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Traefik | Template static config
+  ansible.builtin.template:
+    src: traefik/traefik.yml.j2
+    dest: "{{ svc_compose_dir }}/traefik/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Traefik | Template docker-compose.yml
+  ansible.builtin.template:
+    src: traefik/docker-compose.yml.j2
+    dest: "{{ svc_compose_dir }}/traefik/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Traefik | Pull images
+  ansible.builtin.command: docker compose pull
+  args:
+    chdir: "{{ svc_compose_dir }}/traefik"
+  changed_when: false
+
+- name: Traefik | Deploy stack
+  ansible.builtin.command: docker compose up -d --remove-orphans
+  args:
+    chdir: "{{ svc_compose_dir }}/traefik"
+  register: _traefik_up
+  changed_when: "'Started' in _traefik_up.stdout or 'Recreated' in _traefik_up.stdout"

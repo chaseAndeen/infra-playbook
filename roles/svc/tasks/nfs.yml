@@ -1,0 +1,47 @@
+---
+- name: NFS | Create mount point
+  ansible.builtin.file:
+    path: "{{ svc_nfs_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: NFS | Template systemd mount unit
+  ansible.builtin.template:
+    src: nfs-container-data.mount.j2
+    dest: /etc/systemd/system/mnt-nfs-container_data.mount
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: NFS | Flush handlers so daemon-reload runs before enable/start
+  ansible.builtin.meta: flush_handlers
+
+- name: NFS | Enable and start NFS mount
+  ansible.builtin.systemd:
+    name: mnt-nfs-container_data.mount
+    state: started
+    enabled: true
+
+- name: NFS | Create svc-01 data subdirectories
+  ansible.builtin.file:
+    path: "{{ svc_nfs_mount }}/svc-01/{{ item }}"
+    state: directory
+    owner: "{{ svc_container_uid }}"
+    group: "{{ svc_container_gid }}"
+    mode: "0755"
+  loop:
+    - traefik
+    - authentik
+    - postgres
+    - redis
+
+- name: NFS | Create acme.json for Traefik (mode 0600 required)
+  ansible.builtin.file:
+    path: "{{ svc_nfs_mount }}/svc-01/traefik/acme.json"
+    state: touch
+    owner: "{{ svc_container_uid }}"
+    group: "{{ svc_container_gid }}"
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve

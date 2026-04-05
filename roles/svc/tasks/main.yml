@@ -1,0 +1,20 @@
+---
+- name: Svc | System packages and service account
+  ansible.builtin.import_tasks: system.yml
+  tags: [system]
+
+- name: Svc | NFS mount and data directories
+  ansible.builtin.import_tasks: nfs.yml
+  tags: [nfs]
+
+- name: Svc | Firewall rules
+  ansible.builtin.import_tasks: firewall.yml
+  tags: [firewall]
+
+- name: Svc | Traefik reverse proxy
+  ansible.builtin.import_tasks: traefik.yml
+  tags: [traefik]
+
+- name: Svc | Authentik identity provider
+  ansible.builtin.import_tasks: authentik.yml
+  tags: [authentik]

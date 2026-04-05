@@ -27,6 +27,6 @@
   ansible.builtin.import_tasks: pbs.yml
   tags: [pbs]
 
-- name: PVE | Teleport node agent
-  ansible.builtin.import_tasks: teleport_agent.yml
-  tags: [teleport_agent]
+#- name: PVE | Teleport node agent
+#  ansible.builtin.import_tasks: teleport_agent.yml
+#  tags: [teleport_agent]

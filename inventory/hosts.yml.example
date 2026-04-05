@@ -47,3 +47,11 @@ teleport:
       ansible_user: "{{ ansible_service_user }}"
       ansible_port: "{{ proxmox_ssh_port }}"
       ansible_become: true
+
+svc:
+  hosts:
+    svc-01:
+      ansible_host: 192.168.x.x
+      ansible_user: "{{ ansible_service_user }}"
+      ansible_port: "{{ proxmox_ssh_port }}"
+      ansible_become: true

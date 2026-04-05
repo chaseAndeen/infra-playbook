@@ -108,3 +108,13 @@ proxmox_debian_release: trixie
 # --- API User Passwords ---
 terraform_tmp_pass: "{{ lookup('amazon.aws.ssm_parameter', '/infra/proxmox/terraform_tmp_pass', profile=aws_profile, region=aws_region) }}"
 packer_api_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/proxmox/packer_api_password', profile=aws_profile, region=aws_region) }}"
+
+# --- Services VM (svc-01) ---
+svc_nfs_server: "nas.example.com"
+svc_nfs_export: "/mnt/pool/container_data"
+svc_authentik_domain: "authentik.apps.example.com"
+
+# Authentik secrets
+authentik_secret_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/authentik/secret_key', profile=aws_profile, region=aws_region) }}"
+authentik_postgres_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/authentik/postgres_password', profile=aws_profile, region=aws_region) }}"
+# cloudflare_token is already defined above — reused for Traefik DNS-01 challenge

@@ -1,0 +1,92 @@
+---
+- name: Authentik | Check for existing secret_key in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/authentik/secret_key"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _authentik_secret_key
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Authentik | Generate and store secret_key in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/authentik/secret_key"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -base64 60') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _authentik_secret_key is failed
+
+- name: Authentik | Check for existing postgres_password in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/authentik/postgres_password"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _authentik_postgres_password
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Authentik | Generate and store postgres_password in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/authentik/postgres_password"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -base64 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _authentik_postgres_password is failed
+
+- name: Authentik | Create compose directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/authentik"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Authentik | Template environment file
+  ansible.builtin.template:
+    src: authentik/.env.j2
+    dest: "{{ svc_compose_dir }}/authentik/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart authentik
+
+- name: Authentik | Template docker-compose.yml
+  ansible.builtin.template:
+    src: authentik/docker-compose.yml.j2
+    dest: "{{ svc_compose_dir }}/authentik/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart authentik
+
+- name: Authentik | Pull images
+  ansible.builtin.command: docker compose pull
+  args:
+    chdir: "{{ svc_compose_dir }}/authentik"
+  changed_when: false
+
+- name: Authentik | Deploy stack
+  ansible.builtin.command: docker compose up -d --remove-orphans
+  args:
+    chdir: "{{ svc_compose_dir }}/authentik"
+  register: _authentik_up
+  changed_when: "'Started' in _authentik_up.stdout or 'Recreated' in _authentik_up.stdout"
