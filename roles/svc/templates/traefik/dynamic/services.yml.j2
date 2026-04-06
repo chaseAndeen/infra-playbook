@@ -1,0 +1,42 @@
+http:
+  routers:
+{% for svc in proxy_services %}
+    {{ svc.name }}:
+      rule: "Host(`{{ svc.domain }}`)"
+      entryPoints:
+        - websecure
+      service: "{{ svc.name }}-backend"
+      middlewares:
+        - secure-headers
+{% if svc.auth | default('none') == 'forward_auth' %}
+        - authentik-forward-auth
+{% endif %}
+      tls:
+        certResolver: cloudflare
+{% endfor %}
+
+  services:
+{% for svc in proxy_services %}
+    {{ svc.name }}-backend:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "{{ svc.backend_url }}"
+{% if svc.backend_tls_skip_verify | default(false) %}
+        serversTransport: "{{ svc.name }}-transport"
+{% endif %}
+{% endfor %}
+
+{% set ns = namespace(has_skip_verify=false) %}
+{% for svc in proxy_services %}
+{% if svc.backend_tls_skip_verify | default(false) %}
+{% set ns.has_skip_verify = true %}
+{% endif %}
+{% endfor %}
+{% if ns.has_skip_verify %}
+  serversTransports:
+{% for svc in proxy_services if svc.backend_tls_skip_verify | default(false) %}
+    {{ svc.name }}-transport:
+      insecureSkipVerify: true
+{% endfor %}
+{% endif %}

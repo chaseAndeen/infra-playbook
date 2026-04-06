@@ -45,6 +45,15 @@
     group: root
     mode: "0644"
 
+- name: Traefik | Template proxy services dynamic config
+  ansible.builtin.template:
+    src: traefik/dynamic/services.yml.j2
+    dest: "{{ svc_compose_dir }}/traefik/dynamic/services.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
 - name: Traefik | Template environment file
   ansible.builtin.template:
     src: traefik/.env.j2

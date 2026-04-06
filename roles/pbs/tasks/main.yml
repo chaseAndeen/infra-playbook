@@ -19,3 +19,7 @@
   ansible.builtin.import_tasks: notifications.yml
   tags: [notifications]
 
+- name: PBS | OIDC realm configuration
+  ansible.builtin.import_tasks: oidc.yml
+  tags: [oidc]
+

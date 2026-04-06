@@ -26,3 +26,7 @@
 - name: PVE | PBS storage registration
   ansible.builtin.import_tasks: pbs.yml
   tags: [pbs]
+
+- name: PVE | OIDC realm configuration
+  ansible.builtin.import_tasks: oidc.yml
+  tags: [oidc]

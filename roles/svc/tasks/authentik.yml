@@ -77,6 +77,38 @@
   delegate_to: localhost
   when: _authentik_bootstrap_token is failed
 
+- name: Authentik | Check for existing OIDC client secret in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/oidc/{{ item.name }}/client_secret"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _oidc_secret_check
+  loop: "{{ proxy_services | selectattr('auth', 'equalto', 'oidc') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Authentik | Generate and store OIDC client secret in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/oidc/{{ item.item.name }}/client_secret"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -hex 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  loop: "{{ _oidc_secret_check.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item is failed
+  no_log: true
+  become: false
+  delegate_to: localhost
+
 - name: Authentik | Create compose directory
   ansible.builtin.file:
     path: "{{ svc_compose_dir }}/authentik"
@@ -84,6 +116,23 @@
     owner: root
     group: root
     mode: "0755"
+
+- name: Authentik | Create blueprints directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/authentik/blueprints"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Authentik | Template proxy-services blueprint
+  ansible.builtin.template:
+    src: authentik/blueprints/proxy-services.yml.j2
+    dest: "{{ svc_compose_dir }}/authentik/blueprints/proxy-services.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart authentik
 
 - name: Authentik | Template environment file
   ansible.builtin.template:
