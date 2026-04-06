@@ -1,0 +1,39 @@
+---
+- Networking:
+    - OPNsense:
+        href: "https://{{ svc_opnsense_domain }}"
+        description: Firewall & Router
+        icon: opnsense.png
+
+    - UniFi:
+        href: "https://{{ svc_unifi_domain }}"
+        description: Network Controller
+        icon: unifi.png
+
+- Virtualization:
+    - Proxmox VE:
+        href: "https://pve.svc.kernelstack.dev"
+        description: Hypervisor
+        icon: proxmox.png
+
+    - Proxmox Backup Server:
+        href: "https://pbs.svc.kernelstack.dev"
+        description: Backup Server
+        icon: proxmox.png
+
+- Storage:
+    - TrueNAS:
+        href: "https://{{ svc_truenas_host }}"
+        description: Network Attached Storage
+        icon: truenas.png
+
+- Services:
+    - Traefik:
+        href: "https://{{ svc_traefik_domain }}"
+        description: Reverse Proxy
+        icon: traefik.png
+
+    - Authentik:
+        href: "https://{{ svc_authentik_domain }}"
+        description: Identity Provider
+        icon: authentik.png
