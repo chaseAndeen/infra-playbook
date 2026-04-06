@@ -1,0 +1,31 @@
+services:
+  traefik:
+    image: traefik:{{ svc_traefik_version }}
+    container_name: traefik
+    restart: unless-stopped
+    # Runs as container_user (2001:2001).
+    # group_add grants access to the Docker socket (root:docker on host).
+    # NET_BIND_SERVICE allows binding ports 80/443 as non-root.
+    user: "{{ svc_container_uid }}:{{ svc_container_gid }}"
+    group_add:
+      - "{{ svc_docker_gid }}"
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - {{ svc_compose_dir }}/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - {{ svc_compose_dir }}/traefik/dynamic:/etc/traefik/dynamic:ro
+      - {{ svc_nfs_mount }}/svc-01/traefik:/data
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

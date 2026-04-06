@@ -18,3 +18,6 @@ IN ACCEPT -p tcp -dport {{ proxmox_gui_port }} -source {{ cidr }}
 IN ACCEPT -p tcp -dport {{ proxmox_ssh_port }} -source {{ cidr }}
 IN ACCEPT -p tcp -dport 22 -source {{ cidr }}
 {% endfor %}
+
+# Allow Proxmox GUI from services network (Traefik reverse proxy)
+IN ACCEPT -p tcp -dport {{ proxmox_gui_port }} -source {{ svc_network_cidr }}

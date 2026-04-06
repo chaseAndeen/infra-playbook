@@ -1,16 +1,6 @@
 # infra-playbook
 
-Ansible IaC for Proxmox VE, Proxmox Backup Server, and Teleport. Secrets managed via AWS SSM Parameter Store, accessed through AWS IAM Identity Center SSO.
-
----
-
-## Architecture
-
-Teleport is the single access point for all infrastructure:
-
-- **SSH** — all VM access goes through Teleport's SSH CA. No static keys needed after initial bootstrap.
-- **Web UIs** — PVE, PBS, TrueNAS, and future services are registered as Teleport app proxy applications. One login at `teleport.infra.kernelstack.dev` gives access to everything.
-- **Break-glass** — local PAM admin user exists on PVE and PBS for direct access if Teleport is unavailable. TOTP is not enforced at the realm level — configure it per-user via the web UI after first login.
+Ansible IaC for Proxmox VE, Proxmox Backup Server, and services VM (Traefik + Authentik). Secrets managed via AWS SSM Parameter Store, accessed through AWS IAM Identity Center SSO.
 
 ---
 
@@ -33,7 +23,7 @@ cp inventory/group_vars/all.yml.example inventory/group_vars/all.yml
 
 ## SSM Parameters
 
-Seed these parameters before running any playbook.
+Seed these parameters before running any playbook. Parameters marked *auto* are written by the playbook on first run and do not need to be seeded manually.
 
 | Path | Type | Description |
 |---|---|---|
@@ -42,17 +32,20 @@ Seed these parameters before running any playbook.
 | `/infra/common/root_password` | SecureString | Root user login password |
 | `/infra/common/ansible_public_key` | String | `ansible` service account SSH public key |
 | `/infra/common/ansible_private_key` | SecureString | `ansible` service account SSH private key |
-| `/infra/common/cloudflare/api_token` | SecureString | Cloudflare API token with DNS Edit permission — required for ACME |
+| `/infra/common/cloudflare/api_token` | SecureString | Cloudflare API token with DNS Edit permission — required for Traefik ACME |
 | `/infra/common/cloudflare/zone_id` | String | Cloudflare zone ID |
 | `/infra/common/smtp/user` | String | SMTP username |
 | `/infra/common/smtp/pass` | SecureString | SMTP password |
 | `/infra/proxmox/terraform_tmp_pass` | SecureString | Initial password for `terraform-prov@pve` — used only at user creation |
 | `/infra/proxmox/packer_api_password` | SecureString | Initial password for `packer-builder@pve` — used only at user creation |
-| `/infra/proxmox/terraform_token` | SecureString | Proxmox API token for Terraform — written automatically by `site.yml` |
-| `/infra/proxmox/packer_token` | SecureString | Proxmox API token for Packer — written automatically by `site.yml` |
+| `/infra/proxmox/terraform_token` | SecureString | *auto* — Proxmox API token for Terraform |
+| `/infra/proxmox/packer_token` | SecureString | *auto* — Proxmox API token for Packer |
 | `/infra/pbs/backup_user_password` | SecureString | Password for `backup-user@pbs` |
-| `/infra/pbs/fingerprint` | String | PBS TLS fingerprint — written automatically by `pbs.yml` |
-| `/infra/teleport/node_token` | SecureString | Teleport node enrollment token — written automatically by `teleport.yml` |
+| `/infra/pbs/fingerprint` | String | *auto* — PBS TLS fingerprint |
+| `/infra/svc/authentik/secret_key` | SecureString | *auto* — Authentik secret key |
+| `/infra/svc/authentik/postgres_password` | SecureString | *auto* — Authentik PostgreSQL password |
+| `/infra/svc/authentik/bootstrap_token` | SecureString | *auto* — Authentik bootstrap API token |
+| `/infra/svc/oidc/<name>/client_secret` | SecureString | *auto* — OIDC client secret per `proxy_services` entry (e.g. `/infra/svc/oidc/pve/client_secret`) |
 
 ---
 
@@ -69,59 +62,77 @@ Runs the `base` role to create the admin OS user, set passwords from SSM, instal
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags base
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags base
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
 ```
 
 ### 3. Proxmox — post-install configuration
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --skip-tags pbs,teleport_agent
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --skip-tags pbs,oidc
 ```
-Configures repos, ZFS storage, firewall, notifications, and Terraform/Packer API users. PBS registration and Teleport agent enrollment are skipped — PBS isn't deployed yet and the enrollment token doesn't exist in SSM until step 6.
+Configures repos, ZFS storage, firewall, notifications, and Terraform/Packer API users. PBS registration and OIDC are skipped — neither is deployed yet.
 
 **Post-run:**
-- Log into the PVE web UI and set up TOTP under your username → Two Factor → Add TOTP.
+- Log into the PVE web UI and set up TOTP for `sysop@pam`: username → Two Factor → Add TOTP.
 
-### 4. PBS — provision and configure
+### 4. PBS — install and configure
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --skip-tags oidc
 ```
-Configures repos, NFS mount, datastore, prune/GC schedules, firewall, and users.
+Installs the PBS package, configures repos, NFS mount, datastore, prune/GC schedules, firewall, and users.
 
 **Post-run:**
-- Log into the PBS web UI and set up TOTP manually:
-  Administration → User Management → `sysop@pam` → TFA → Add TOTP
+- Log into the PBS web UI and set up TOTP for `sysop@pam`: Administration → User Management → `sysop@pam` → TFA → Add TOTP.
 
 ### 5. Proxmox — register PBS storage and backup job
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
 ```
-Registers PBS as a PVE storage backend and creates a nightly backup job (`--all 1`). Templates and the PBS VM are automatically excluded on every run — new Packer templates are picked up dynamically. All other VMs are backed up. Notifications fire on errors and warnings only.
+Registers PBS as a PVE storage backend and creates a nightly backup job (`--all 1`). Templates and the PBS VM are automatically excluded. Notifications fire on errors and warnings only.
 
-### 6. Teleport — configure
+### 6. Services VM — deploy Traefik and Authentik
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml
 ```
-Obtains a TLS certificate via Cloudflare DNS-01 challenge (no inbound port 443 required), writes production config, configures firewall, creates admin user, registers PVE/PBS/TrueNAS as app proxy applications, and generates a node enrollment token stored in SSM.
+Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik and Authentik as Docker Compose stacks. Also:
+- Generates OIDC client secrets for each `proxy_services` entry and stores them in SSM
+- Templates the Authentik blueprint (`/blueprints/custom/proxy-services.yml`) and applies it on container start — creates OAuth2/OIDC providers and applications for each service
+- Creates Traefik file-provider routes for each service in `proxy_services`
 
 **Post-run:**
-- Use the invite link printed by the `users` task to complete Teleport admin account setup
-- Configure the following OPNsense Unbound host overrides, all pointing at the Teleport VM IP:
-  - `teleport` → `infra.kernelstack.dev`
-  - `*.teleport` → `infra.kernelstack.dev` (wildcard for app subdomains)
-  - `datavault` → `infra.kernelstack.dev` (TrueNAS served via Teleport `public_addr`)
+- Complete Authentik initial setup at `https://authentik.<your-domain>/if/flow/initial-setup/`
+- Enable TOTP for your admin account under User Settings → MFA Devices
 
-### 7. Enroll nodes
-Node enrollment is automated. Each app entry in `teleport_apps` has an `install_agent` bool that controls whether the Teleport node agent is installed on the corresponding host. Set `install_agent: true` for any host you want enrolled.
-
+### 7. Configure OIDC realms on PVE and PBS
 ```bash
-# Enroll PVE nodes (runs as part of site.yml, or standalone):
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags teleport_agent
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc
+```
+Registers the Authentik OpenID realm on each system, syncs client credentials from SSM, and grants `Administrator`/`Admin` to all users listed in `pve_oidc_admins` / `pbs_oidc_admins`.
 
-# Enroll PBS nodes:
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags teleport_agent
+Users in `pve_oidc_admins` and `pbs_oidc_admins` can now log in via **Sign in with Authentik** on the PVE and PBS login screens.
+
+---
+
+## Adding a New Proxied Service
+
+All proxy routing and Authentik integration is driven from the `proxy_services` list in `inventory/group_vars/all.yml`. Adding a service is a one-file change:
+
+```yaml
+proxy_services:
+  - name: my-app           # identifier — used for route/provider names
+    label: "My App"        # displayed in Authentik UI
+    domain: "my-app.svc.example.com"
+    backend_url: "http://192.168.x.x:3000"
+    backend_tls_skip_verify: false
+    # auth: none | forward_auth | oidc
+    auth: forward_auth     # gate behind Authentik without native SSO
 ```
 
-The playbook downloads the Teleport `.deb` directly (Debian Trixie is not in the Teleport APT repo), configures the node using the token from SSM, and enables the service. Re-runs are idempotent — the binary and config are only written if absent.
+Then re-run:
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags traefik,authentik
+```
+
+For services with native OIDC support (e.g. Grafana), set `auth: oidc` and add an `oidc:` block. See `all.yml.example` for the full field reference and commented examples.
 
 ---
 
@@ -133,11 +144,6 @@ All playbooks are idempotent and safe to re-run at any time.
 # Password rotation — update SSM then run:
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags base
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags base
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags base
-
-# TLS certificate renewal (Teleport — certbot runs automatically via systemd timer)
-# To force a manual renewal:
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags acme
 
 # System (repos, PVE users, vzdump config)
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags system
@@ -148,19 +154,11 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags storage
 # Firewall rules
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags firewall
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags network
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags firewall
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags firewall
 
 # Notification configuration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags notifications
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags notifications
-
-# Teleport app registrations (add/update entries in teleport_apps in group_vars/all.yml, then:)
-ansible-playbook -i inventory/hosts.yml playbooks/teleport.yml --tags config
-
-# Teleport node agent upgrade (update teleport_agent_version in group_vars/all.yml, then:)
-# Note: only re-installs if the binary is absent. To force upgrade, remove /usr/local/bin/teleport first.
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags teleport_agent
-ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags teleport_agent
 
 # PBS storage registration
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
@@ -168,4 +166,14 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
 # PBS datastore and users
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags datastore
 ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags users
+
+# OIDC realm config and admin ACLs (run after any proxy_services or pve/pbs_oidc_admins change)
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags oidc
+ansible-playbook -i inventory/hosts.yml playbooks/pbs.yml --tags oidc
+
+# Redeploy Traefik (config or version change)
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags traefik
+
+# Redeploy Authentik (config or version change, re-applies blueprint)
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags authentik
 ```

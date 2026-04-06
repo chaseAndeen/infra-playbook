@@ -1,0 +1,12 @@
+http:
+  routers:
+    dashboard:
+      rule: "Host(`{{ svc_traefik_domain }}`)"
+      entryPoints:
+        - websecure
+      service: api@internal
+      middlewares:
+        - secure-headers
+        - authentik-forward-auth
+      tls:
+        certResolver: cloudflare

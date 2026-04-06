@@ -5,17 +5,21 @@
   failed_when: "_user_cmd.rc != 0 and 'already exists' not in _user_cmd.stderr"
   changed_when: "_user_cmd.rc == 0"
 
-- name: Terraform | Create role
+- name: Terraform | Check if role already exists
+  ansible.builtin.command: pveum role list --output-format json
+  register: _terraform_role_check
+  changed_when: false
+
+- name: Terraform | Create or update role
   ansible.builtin.command: >
-    pveum role add TerraformRole -privs
+    pveum role {{ 'add' if 'TerraformRole' not in _terraform_role_check.stdout else 'modify' }} TerraformRole -privs
     "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.Cloudinit VM.Config.CPU
     VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network
     VM.Config.Options VM.Audit VM.PowerMgmt VM.Console VM.Migrate
+    VM.GuestAgent.Audit
     Datastore.Allocate Datastore.AllocateSpace Datastore.AllocateTemplate Datastore.Audit
     Sys.Audit Sys.Console Sys.Modify Pool.Allocate SDN.Use"
-  register: _terraform_role
-  failed_when: "_terraform_role.rc != 0 and 'already exists' not in _terraform_role.stderr"
-  changed_when: "_terraform_role.rc == 0"
+  changed_when: true
 
 - name: Terraform | Bind role to user
   ansible.builtin.command: "pveum acl modify / -user terraform-prov@pve -role TerraformRole"

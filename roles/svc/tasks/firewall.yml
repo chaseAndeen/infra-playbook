@@ -1,0 +1,49 @@
+---
+- name: Firewall | Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Firewall | Allow SSH from management CIDRs
+  community.general.ufw:
+    rule: allow
+    port: "{{ proxmox_ssh_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: Firewall | Allow HTTP from management CIDRs
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: Firewall | Allow HTTPS from management CIDRs
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ mgmt_cidrs }}"
+
+- name: Firewall | Allow HTTP from apps subnet
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    src: "{{ svc_apps_cidr }}"
+
+- name: Firewall | Allow HTTPS from apps subnet
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    src: "{{ svc_apps_cidr }}"
+
+- name: Firewall | Enable UFW with default deny
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming

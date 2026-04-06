@@ -27,8 +27,3 @@ fail2ban_maxretry: 5
 # --- PBS Web UI ---
 pbs_gui_port: 8007
 
-# --- Teleport node agent ---
-teleport_node_app_name: "proxmox-pbs"
-teleport_agent_version: ""
-teleport_proxy_port: 443
-

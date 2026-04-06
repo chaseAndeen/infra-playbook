@@ -1,0 +1,86 @@
+---
+- name: System | Install Docker apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: System | Create Docker apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: System | Add Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: System | Add Docker apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: System | Install Docker CE and Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: System | Install nfs-common
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+
+- name: System | Ensure Docker service is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: System | Create container_group
+  ansible.builtin.group:
+    name: "{{ svc_container_group }}"
+    gid: "{{ svc_container_gid }}"
+    system: true
+    state: present
+
+- name: System | Create container_user service account
+  ansible.builtin.user:
+    name: "{{ svc_container_user }}"
+    uid: "{{ svc_container_uid }}"
+    group: "{{ svc_container_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    comment: "Container service account"
+    state: present
+
+- name: System | Get docker group GID
+  ansible.builtin.command: getent group docker
+  register: _docker_group
+  changed_when: false
+
+- name: System | Set docker GID fact
+  ansible.builtin.set_fact:
+    svc_docker_gid: "{{ _docker_group.stdout.split(':')[2] }}"
+
+- name: System | Create proxy Docker network
+  ansible.builtin.command: docker network create proxy
+  register: _proxy_network
+  changed_when: _proxy_network.rc == 0
+  failed_when:
+    - _proxy_network.rc != 0
+    - "'already exists' not in _proxy_network.stderr"

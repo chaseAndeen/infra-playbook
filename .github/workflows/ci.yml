@@ -1,10 +1,15 @@
 ---
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   lint:
     name: Ansible Lint
@@ -12,10 +17,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
+
       - name: Set up Python
         uses: actions/setup-python@v5.4.0
         with:
           python-version: "3.12"
+
       - name: Install dependencies
         run: |
           pip install ansible-core ansible-lint
@@ -24,20 +31,24 @@ jobs:
             amazon.aws \
             community.aws \
             ansible.posix
+
       - name: Run ansible-lint
         run: ansible-lint
         env:
           ANSIBLE_ROLES_PATH: ./roles
+
   syntax-check:
     name: Syntax Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
+
       - name: Set up Python
         uses: actions/setup-python@v5.4.0
         with:
           python-version: "3.12"
+
       - name: Install dependencies
         run: |
           pip install ansible-core
@@ -46,6 +57,7 @@ jobs:
             amazon.aws \
             community.aws \
             ansible.posix
+
       - name: Create stub inventory for syntax check
         run: |
           mkdir -p inventory/group_vars
@@ -71,10 +83,10 @@ jobs:
                 pbs_nfs_export: "/mnt/pool/dataset"
                 pbs_backup_user: "backup-user@pbs"
                 pbs_backup_user_password: "dummy"
-          teleport:
+          svc:
             hosts:
-              teleport-01:
-                ansible_host: 192.168.1.3
+              svc-01:
+                ansible_host: 192.168.20.20
           EOF
           cat > inventory/group_vars/all.yml << 'EOF'
           aws_profile: "dummy"
@@ -83,6 +95,7 @@ jobs:
           ansible_service_user: "ansible"
           proxmox_ssh_port: 2222
           proxmox_gui_port: 8006
+          pbs_gui_port: 8007
           proxmox_debian_release: "trixie"
           admin_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 dummy"
           ansible_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 dummy"
@@ -91,40 +104,6 @@ jobs:
           cloudflare_token: "dummy"
           cloudflare_zone_id: "dummy"
           cert_email: "admin@example.com"
-          teleport_domain: "teleport.example.com"
-          teleport_wildcard_domain: ""
-          teleport_agent_version: "17.0.0"
-          teleport_apps:
-            - name: proxmox-pve
-              description: "Proxmox VE"
-              uri: "https://192.168.1.1:8006"
-              public_addr: "pve-01.teleport.example.com"
-              insecure_skip_verify: true
-              install_agent: false
-              labels:
-                env: infra
-                type: hypervisor
-            - name: proxmox-pbs
-              description: "Proxmox Backup Server"
-              uri: "https://192.168.1.2:8007"
-              public_addr: "pbs-01.teleport.example.com"
-              insecure_skip_verify: true
-              install_agent: false
-              labels:
-                env: infra
-                type: backup
-            - name: truenas
-              description: "TrueNAS"
-              uri: "https://192.168.1.3"
-              public_addr: "192.168.1.3"
-              insecure_skip_verify: true
-              install_agent: false
-              labels:
-                env: infra
-                type: storage
-          pve_host: "192.168.1.1"
-          pbs_host: "192.168.1.2"
-          truenas_host: "192.168.1.3"
           smtp_server: "email-smtp.us-east-1.amazonaws.com"
           smtp_port: 587
           smtp_from: "alerts@example.com"
@@ -136,6 +115,7 @@ jobs:
           mgmt_cidrs:
             - 192.168.1.0/24
           pve_network_cidr: "192.168.1.0/24"
+          svc_network_cidr: "192.168.20.0/24"
           proxmox_firewall_enable_datacenter: true
           proxmox_firewall_enable_node: true
           proxmox_firewall_policy_in: DROP
@@ -147,26 +127,64 @@ jobs:
           pve_bridge: "vmbr0"
           pve_snippet_storage: "local"
           pve_snippet_path: "/var/lib/vz/snippets"
+          svc_nfs_server: "192.168.1.4"
+          svc_nfs_export: "/mnt/pool/container_data"
+          svc_traefik_domain: "traefik.apps.example.com"
+          svc_authentik_domain: "authentik.apps.example.com"
+          authentik_secret_key: "dummy"
+          authentik_postgres_password: "dummy"
+          authentik_bootstrap_token: "dummy"
+          pve_oidc_admins:
+            - "admin@example.com"
+          pbs_oidc_admins:
+            - "admin@example.com"
+          proxy_services:
+            - name: pve
+              label: "Proxmox VE"
+              domain: "pve.apps.example.com"
+              backend_url: "https://192.168.1.1:8006"
+              backend_tls_skip_verify: true
+              auth: oidc
+              oidc:
+                client_id: pve
+                realm_name: authentik
+                username_claim: email
+                autocreate: true
+                target: pve
+            - name: pbs
+              label: "Proxmox Backup Server"
+              domain: "pbs.apps.example.com"
+              backend_url: "https://192.168.1.2:8007"
+              backend_tls_skip_verify: true
+              auth: oidc
+              oidc:
+                client_id: pbs
+                realm_name: authentik
+                username_claim: email
+                autocreate: true
+                target: pbs
           EOF
+
       - name: Syntax check bootstrap
         run: >
           ansible-playbook playbooks/bootstrap.yml
           --syntax-check
           -i inventory/hosts.yml
+
       - name: Syntax check site
         run: >
           ansible-playbook playbooks/site.yml
           --syntax-check
           -i inventory/hosts.yml
+
       - name: Syntax check pbs
         run: >
           ansible-playbook playbooks/pbs.yml
           --syntax-check
           -i inventory/hosts.yml
-      - name: Syntax check teleport
+
+      - name: Syntax check svc
         run: >
-          ansible-playbook playbooks/teleport.yml
+          ansible-playbook playbooks/svc.yml
           --syntax-check
           -i inventory/hosts.yml
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

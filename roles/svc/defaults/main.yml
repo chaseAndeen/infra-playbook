@@ -1,0 +1,27 @@
+---
+# --- Container service account ---
+svc_container_user: container_user
+svc_container_group: container_group
+svc_container_uid: 2001
+svc_container_gid: 2001
+svc_docker_gid: ""  # discovered at runtime via getent group docker
+
+# --- Compose directories ---
+svc_compose_dir: /opt/compose
+
+# --- NFS ---
+svc_nfs_mount: /mnt/nfs/container_data
+svc_nfs_options: "defaults,_netdev,nfsvers=4,hard,intr"
+
+# --- Traefik ---
+svc_traefik_version: "v3"
+svc_traefik_domain: "traefik.svc.kernelstack.dev"
+
+# --- Authentik ---
+svc_authentik_version: "2024.12"
+svc_authentik_domain: "authentik.svc.kernelstack.dev"
+svc_postgres_version: "16"
+svc_redis_version: "7"
+
+# --- Firewall ---
+svc_apps_cidr: "192.168.20.0/24"

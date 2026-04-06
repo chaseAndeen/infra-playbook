@@ -1,6 +1,6 @@
 ---
-- name: Teleport configuration
-  hosts: teleport
+- name: Services VM configuration
+  hosts: svc
   become: true
   gather_facts: false
 
@@ -15,7 +15,7 @@
 
   roles:
     - base
-    - teleport
+    - svc
 
   post_tasks:
     - name: Clean up temp SSH key

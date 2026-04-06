@@ -1,0 +1,13 @@
+[Unit]
+Description=NFS mount — TrueNAS container data
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What={{ svc_nfs_server }}:{{ svc_nfs_export }}
+Where={{ svc_nfs_mount }}
+Type=nfs4
+Options={{ svc_nfs_options }}
+
+[Install]
+WantedBy=multi-user.target

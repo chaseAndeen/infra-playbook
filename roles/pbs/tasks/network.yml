@@ -27,6 +27,13 @@
     proto: tcp
     src: "{{ pve_network_cidr }}"
 
+- name: PBS | Allow PBS web UI from services network (Traefik reverse proxy)
+  community.general.ufw:
+    rule: allow
+    port: "{{ pbs_gui_port }}"
+    proto: tcp
+    src: "{{ svc_network_cidr }}"
+
 - name: PBS | Enable UFW with default deny
   community.general.ufw:
     state: enabled
