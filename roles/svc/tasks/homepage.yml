@@ -1,0 +1,74 @@
+---
+- name: Homepage | Create compose directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/homepage"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Homepage | Create config directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/homepage/config"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Homepage | Template docker-compose.yml
+  ansible.builtin.template:
+    src: homepage/docker-compose.yml.j2
+    dest: "{{ svc_compose_dir }}/homepage/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Homepage | Template settings.yaml
+  ansible.builtin.template:
+    src: homepage/config/settings.yaml.j2
+    dest: "{{ svc_compose_dir }}/homepage/config/settings.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Homepage | Template services.yaml
+  ansible.builtin.template:
+    src: homepage/config/services.yaml.j2
+    dest: "{{ svc_compose_dir }}/homepage/config/services.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Homepage | Template widgets.yaml
+  ansible.builtin.template:
+    src: homepage/config/widgets.yaml.j2
+    dest: "{{ svc_compose_dir }}/homepage/config/widgets.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Homepage | Template bookmarks.yaml
+  ansible.builtin.template:
+    src: homepage/config/bookmarks.yaml.j2
+    dest: "{{ svc_compose_dir }}/homepage/config/bookmarks.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Homepage | Pull image
+  ansible.builtin.command: docker compose pull
+  args:
+    chdir: "{{ svc_compose_dir }}/homepage"
+  changed_when: false
+
+- name: Homepage | Deploy stack
+  ansible.builtin.command: docker compose up -d --remove-orphans
+  args:
+    chdir: "{{ svc_compose_dir }}/homepage"
+  register: _homepage_up
+  changed_when: "'Started' in _homepage_up.stdout or 'Recreated' in _homepage_up.stdout"

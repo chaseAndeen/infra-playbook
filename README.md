@@ -90,11 +90,11 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
 ```
 Registers PBS as a PVE storage backend and creates a nightly backup job (`--all 1`). Templates and the PBS VM are automatically excluded. Notifications fire on errors and warnings only.
 
-### 6. Services VM — deploy Traefik, Authentik, and UniFi
+### 6. Services VM — deploy Traefik, Authentik, UniFi, and Homepage
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/svc.yml
 ```
-Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik, Authentik, and UniFi Network Application as Docker Compose stacks. Also:
+Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik, Authentik, UniFi Network Application, and Homepage as Docker Compose stacks. Also:
 - Generates OIDC client secrets for each `proxy_services` entry and stores them in SSM
 - Auto-generates MongoDB credentials for UniFi and stores them in SSM
 - Templates the Authentik blueprint (`/blueprints/custom/proxy-services.yml`) and applies it on container start — creates OAuth2/OIDC providers and applications for each service
@@ -104,6 +104,7 @@ Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik, Authen
 - Complete Authentik initial setup at `https://authentik.<your-domain>/if/flow/initial-setup/`
 - Enable TOTP for your admin account under User Settings → MFA Devices
 - Access UniFi at `https://unifi.<your-domain>/` — on first run the setup wizard allows restoring a `.unf` backup
+- Homepage is available at `https://homepage.<your-domain>/` — edit `roles/svc/templates/homepage/config/services.yaml.j2` to add or remove service tiles
 
 ### 7. Configure OIDC realms on PVE and PBS
 ```bash
@@ -183,4 +184,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags authentik
 
 # Redeploy UniFi (config or version change)
 ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags unifi
+
+# Redeploy Homepage (config or version change)
+ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags homepage
 ```

@@ -132,6 +132,9 @@ jobs:
           svc_traefik_domain: "traefik.apps.example.com"
           svc_authentik_domain: "authentik.apps.example.com"
           svc_unifi_domain: "unifi.apps.example.com"
+          svc_homepage_domain: "homepage.apps.example.com"
+          svc_truenas_host: "192.168.1.4"
+          svc_opnsense_domain: "fw.apps.example.com"
           authentik_secret_key: "dummy"
           authentik_postgres_password: "dummy"
           authentik_bootstrap_token: "dummy"
@@ -177,6 +180,11 @@ jobs:
               domain: "unifi.apps.example.com"
               backend_url: "https://unifi-app:8443"
               backend_tls_skip_verify: true
+              auth: none
+            - name: homepage
+              label: "Homepage"
+              domain: "homepage.apps.example.com"
+              backend_url: "http://homepage:3000"
               auth: none
           EOF
 

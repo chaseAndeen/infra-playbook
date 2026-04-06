@@ -1,0 +1,17 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:{{ svc_homepage_version }}
+    container_name: homepage
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - HOMEPAGE_ALLOWED_HOSTS={{ svc_homepage_domain }}
+    volumes:
+      - {{ svc_compose_dir }}/homepage/config:/app/config
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

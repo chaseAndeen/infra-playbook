@@ -75,6 +75,9 @@ svc_nfs_export: "/mnt/pool/container_data"
 svc_traefik_domain: "traefik.apps.example.com"
 svc_authentik_domain: "authentik.apps.example.com"
 svc_unifi_domain: "unifi.apps.example.com"
+svc_homepage_domain: "homepage.apps.example.com"
+svc_truenas_host: "nas.example.com"     # IP or hostname of TrueNAS — used in homepage services tile
+svc_opnsense_domain: "fw.example.com"   # FQDN of OPNsense — used in homepage services tile
 
 # --- svc-01 UFW Rules ---
 # Central registry for every inbound port opened on svc-01.
@@ -144,6 +147,12 @@ proxy_services:
     backend_url: "https://unifi-app:8443"
     backend_tls_skip_verify: true
     auth: none   # UniFi has native auth; forward_auth is optional but blocks mobile app access
+
+  - name: homepage
+    label: "Homepage"
+    domain: "homepage.apps.example.com"
+    backend_url: "http://homepage:3000"
+    auth: none   # Public dashboard — add forward_auth if you want to gate it behind Authentik
 
   # Example: service with no native auth — use forward_auth to gate it behind Authentik
   # - name: my-dashboard
