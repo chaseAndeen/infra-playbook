@@ -23,5 +23,10 @@ svc_authentik_domain: "authentik.svc.kernelstack.dev"
 svc_postgres_version: "16"
 svc_redis_version: "7"
 
+# --- UniFi ---
+svc_unifi_version: "latest"
+svc_unifi_mongo_version: "4.4"
+svc_unifi_domain: "unifi.svc.kernelstack.dev"
+
 # --- Firewall ---
 svc_apps_cidr: "192.168.20.0/24"

@@ -12,3 +12,8 @@
   ansible.builtin.command: docker compose up -d --remove-orphans
   args:
     chdir: "{{ svc_compose_dir }}/authentik"
+
+- name: Restart unifi
+  ansible.builtin.command: docker compose up -d --remove-orphans
+  args:
+    chdir: "{{ svc_compose_dir }}/unifi"

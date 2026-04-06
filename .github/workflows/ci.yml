@@ -131,13 +131,22 @@ jobs:
           svc_nfs_export: "/mnt/pool/container_data"
           svc_traefik_domain: "traefik.apps.example.com"
           svc_authentik_domain: "authentik.apps.example.com"
+          svc_unifi_domain: "unifi.apps.example.com"
           authentik_secret_key: "dummy"
           authentik_postgres_password: "dummy"
           authentik_bootstrap_token: "dummy"
+          unifi_mongo_root_password: "dummy"
+          unifi_mongo_password: "dummy"
           pve_oidc_admins:
             - "admin@example.com"
           pbs_oidc_admins:
             - "admin@example.com"
+          svc_firewall_rules:
+            - { port: "2222", proto: tcp, src: "192.168.1.0/24", comment: "SSH" }
+            - { port: "80",   proto: tcp, src: "192.168.1.0/24", comment: "HTTP" }
+            - { port: "443",  proto: tcp, src: "192.168.1.0/24", comment: "HTTPS" }
+            - { port: "8080", proto: tcp, src: "192.168.1.0/24", comment: "UniFi inform" }
+            - { port: "3478", proto: udp, src: "192.168.1.0/24", comment: "UniFi STUN" }
           proxy_services:
             - name: pve
               label: "Proxmox VE"
@@ -163,6 +172,12 @@ jobs:
                 username_claim: email
                 autocreate: true
                 target: pbs
+            - name: unifi
+              label: "UniFi Network Application"
+              domain: "unifi.apps.example.com"
+              backend_url: "https://unifi-app:8443"
+              backend_tls_skip_verify: true
+              auth: none
           EOF
 
       - name: Syntax check bootstrap

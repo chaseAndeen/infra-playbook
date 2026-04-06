@@ -1,0 +1,54 @@
+services:
+  unifi-mongo:
+    image: mongo:{{ svc_unifi_mongo_version }}
+    container_name: unifi-mongo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongo", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      start_period: 30s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - unifi-mongo-data:/data/db
+      - {{ svc_compose_dir }}/unifi/mongo-init:/docker-entrypoint-initdb.d:ro
+    env_file:
+      - .env
+    networks:
+      - unifi-internal
+
+  unifi-app:
+    image: lscr.io/linuxserver/unifi-network-application:{{ svc_unifi_version }}
+    container_name: unifi-app
+    restart: unless-stopped
+    environment:
+      - PUID={{ svc_container_uid }}
+      - PGID={{ svc_container_gid }}
+    env_file:
+      - .env
+    volumes:
+      - {{ svc_nfs_mount }}/svc-01/unifi:/config
+    ports:
+      # Device communication (inform) — must be reachable by UniFi devices directly
+      - "8080:8080"
+      # STUN
+      - "3478:3478/udp"
+      # AP discovery (same subnet only)
+      - "10001:10001/udp"
+    depends_on:
+      unifi-mongo:
+        condition: service_healthy
+    networks:
+      - unifi-internal
+      - proxy
+
+volumes:
+  unifi-mongo-data:
+    driver: local
+
+networks:
+  unifi-internal:
+    driver: bridge
+    internal: true
+  proxy:
+    external: true
