@@ -1,0 +1,12 @@
+// Runs once on first MongoDB startup via /docker-entrypoint-initdb.d.
+// Creates the UniFi application user in the admin database so that
+// MONGO_AUTHSOURCE=admin works from the unifi-app container.
+db.getSiblingDB("admin").createUser({
+  user: "unifi",
+  pwd: "{{ unifi_mongo_password }}",
+  roles: [
+    { role: "dbOwner", db: "unifi" },
+    { role: "dbOwner", db: "unifi_stat" },
+    { role: "dbOwner", db: "unifi_audit" },
+  ],
+});

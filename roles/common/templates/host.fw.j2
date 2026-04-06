@@ -2,3 +2,4 @@
 enable: {{ 1 if proxmox_firewall_enable_node else 0 }}
 
 [RULES]
+# No host-level rules required — all access control is handled in cluster.fw.

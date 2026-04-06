@@ -35,6 +35,7 @@
     - authentik
     - postgres
     - redis
+    - unifi
 
 - name: NFS | Create acme.json for Traefik (mode 0600 required)
   ansible.builtin.file:

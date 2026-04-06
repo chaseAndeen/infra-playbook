@@ -16,7 +16,6 @@ IN ACCEPT -p icmp
 {% for cidr in mgmt_cidrs %}
 IN ACCEPT -p tcp -dport {{ proxmox_gui_port }} -source {{ cidr }}
 IN ACCEPT -p tcp -dport {{ proxmox_ssh_port }} -source {{ cidr }}
-IN ACCEPT -p tcp -dport 22 -source {{ cidr }}
 {% endfor %}
 
 # Allow Proxmox GUI from services network (Traefik reverse proxy)

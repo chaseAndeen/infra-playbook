@@ -13,6 +13,7 @@
 - name: Firewall | Render cluster.fw content
   ansible.builtin.set_fact:
     cluster_fw_rendered: "{{ (lookup('template', 'cluster.fw.j2') | regex_replace('\\r\\n', '\n') | regex_replace('\\r', '\n')).rstrip() ~ '\n' }}"
+  when: proxmox_manage_cluster_fw
 
 - name: Firewall | Read current cluster.fw if it exists
   ansible.builtin.slurp:
@@ -20,6 +21,7 @@
   register: cluster_fw_current
   failed_when: false
   changed_when: false
+  when: proxmox_manage_cluster_fw
 
 - name: Firewall | Write cluster.fw (only if changed)
   ansible.builtin.shell: |
@@ -29,14 +31,16 @@
   args:
     executable: /bin/bash
   when: >
+    proxmox_manage_cluster_fw and (
     cluster_fw_current is failed or
     ((cluster_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
-    != cluster_fw_rendered
+    != cluster_fw_rendered)
   notify: Restart pve-firewall
 
 - name: Firewall | Render host.fw content
   ansible.builtin.set_fact:
     host_fw_rendered: "{{ (lookup('template', 'host.fw.j2') | regex_replace('\\r\\n', '\n') | regex_replace('\\r', '\n')).rstrip() ~ '\n' }}"
+  when: proxmox_manage_host_fw
 
 - name: Firewall | Read current host.fw if it exists
   ansible.builtin.slurp:
@@ -44,6 +48,7 @@
   register: host_fw_current
   failed_when: false
   changed_when: false
+  when: proxmox_manage_host_fw
 
 - name: Firewall | Write host.fw (only if changed)
   ansible.builtin.shell: |
@@ -53,8 +58,9 @@
   args:
     executable: /bin/bash
   when: >
+    proxmox_manage_host_fw and (
     host_fw_current is failed or
     ((host_fw_current.content | default('') | b64decode | regex_replace('\r\n', '\n') | regex_replace('\r', '\n')).rstrip() ~ '\n')
-    != host_fw_rendered
+    != host_fw_rendered)
   notify: Restart pve-firewall
 

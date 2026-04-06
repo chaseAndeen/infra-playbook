@@ -18,3 +18,7 @@
 - name: Svc | Authentik identity provider
   ansible.builtin.import_tasks: authentik.yml
   tags: [authentik]
+
+- name: Svc | UniFi Network Application
+  ansible.builtin.import_tasks: unifi.yml
+  tags: [unifi]

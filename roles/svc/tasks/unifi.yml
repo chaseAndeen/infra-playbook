@@ -1,0 +1,110 @@
+---
+- name: UniFi | Check for existing mongo_root_password in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/unifi/mongo_root_password"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _unifi_mongo_root_password
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: UniFi | Generate and store mongo_root_password in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/unifi/mongo_root_password"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -base64 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _unifi_mongo_root_password is failed
+
+- name: UniFi | Check for existing mongo_password in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/unifi/mongo_password"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _unifi_mongo_password
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: UniFi | Generate and store mongo_password in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/unifi/mongo_password"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -base64 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _unifi_mongo_password is failed
+
+- name: UniFi | Create compose directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/unifi"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: UniFi | Create mongo-init directory
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/unifi/mongo-init"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: UniFi | Template mongo init script
+  ansible.builtin.template:
+    src: unifi/mongo-init.js.j2
+    dest: "{{ svc_compose_dir }}/unifi/mongo-init/init.js"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  notify: Restart unifi
+
+- name: UniFi | Template environment file
+  ansible.builtin.template:
+    src: unifi/.env.j2
+    dest: "{{ svc_compose_dir }}/unifi/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart unifi
+
+- name: UniFi | Template docker-compose.yml
+  ansible.builtin.template:
+    src: unifi/docker-compose.yml.j2
+    dest: "{{ svc_compose_dir }}/unifi/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart unifi
+
+- name: UniFi | Pull images
+  ansible.builtin.command: docker compose pull
+  args:
+    chdir: "{{ svc_compose_dir }}/unifi"
+  changed_when: false
+
+- name: UniFi | Deploy stack
+  ansible.builtin.command: docker compose up -d --remove-orphans
+  args:
+    chdir: "{{ svc_compose_dir }}/unifi"
+  register: _unifi_up
+  changed_when: "'Started' in _unifi_up.stdout or 'Recreated' in _unifi_up.stdout"
