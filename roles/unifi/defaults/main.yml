@@ -1,0 +1,4 @@
+---
+# UniFi OS Server firmware API — resolves latest stable release URL at runtime
+unifi_firmware_api: "https://fw-update.ui.com/api/firmware-latest?filter=eq~~product~~unifi-os-server&filter=eq~~channel~~release"
+unifi_installer_dest: "/tmp/unifi-os-server-installer"

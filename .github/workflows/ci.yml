@@ -87,6 +87,10 @@ jobs:
             hosts:
               svc-01:
                 ansible_host: 192.168.20.20
+          unifi:
+            hosts:
+              unifi-01:
+                ansible_host: 192.168.1.25
           EOF
           cat > inventory/group_vars/all.yml << 'EOF'
           aws_profile: "dummy"
@@ -131,25 +135,29 @@ jobs:
           svc_nfs_export: "/mnt/pool/container_data"
           svc_traefik_domain: "traefik.apps.example.com"
           svc_authentik_domain: "authentik.apps.example.com"
-          svc_unifi_domain: "unifi.apps.example.com"
           svc_homepage_domain: "homepage.apps.example.com"
           svc_truenas_host: "192.168.1.4"
           svc_opnsense_domain: "fw.apps.example.com"
+          unifi_domain: "unifi.apps.example.com"
           authentik_secret_key: "dummy"
           authentik_postgres_password: "dummy"
           authentik_bootstrap_token: "dummy"
-          unifi_mongo_root_password: "dummy"
-          unifi_mongo_password: "dummy"
           pve_oidc_admins:
             - "admin@example.com"
           pbs_oidc_admins:
             - "admin@example.com"
           svc_firewall_rules:
-            - { port: "2222", proto: tcp, src: "192.168.1.0/24", comment: "SSH" }
-            - { port: "80",   proto: tcp, src: "192.168.1.0/24", comment: "HTTP" }
-            - { port: "443",  proto: tcp, src: "192.168.1.0/24", comment: "HTTPS" }
-            - { port: "8080", proto: tcp, src: "192.168.1.0/24", comment: "UniFi inform" }
-            - { port: "3478", proto: udp, src: "192.168.1.0/24", comment: "UniFi STUN" }
+            - { port: "2222", proto: tcp, src: "192.168.1.0/24",  comment: "SSH" }
+            - { port: "80",   proto: tcp, src: "192.168.1.0/24",  comment: "HTTP" }
+            - { port: "443",  proto: tcp, src: "192.168.1.0/24",  comment: "HTTPS" }
+            - { port: "80",   proto: tcp, src: "192.168.20.0/24", comment: "HTTP (apps)" }
+            - { port: "443",  proto: tcp, src: "192.168.20.0/24", comment: "HTTPS (apps)" }
+          unifi_firewall_rules:
+            - { port: "2222",  proto: tcp, src: "192.168.1.0/24", comment: "SSH" }
+            - { port: "11443", proto: tcp, src: "0.0.0.0/0",      comment: "UniFi OS Server web UI" }
+            - { port: "8080",  proto: tcp, src: "0.0.0.0/0",      comment: "UniFi device inform" }
+            - { port: "3478",  proto: udp, src: "0.0.0.0/0",      comment: "UniFi STUN" }
+            - { port: "10001", proto: udp, src: "0.0.0.0/0",      comment: "UniFi L2 discovery" }
           proxy_services:
             - name: pve
               label: "Proxmox VE"
@@ -176,9 +184,9 @@ jobs:
                 autocreate: true
                 target: pbs
             - name: unifi
-              label: "UniFi Network Application"
+              label: "UniFi OS Server"
               domain: "unifi.apps.example.com"
-              backend_url: "https://unifi-app:8443"
+              backend_url: "https://192.168.1.25:11443"
               backend_tls_skip_verify: true
               auth: none
             - name: homepage
@@ -209,5 +217,11 @@ jobs:
       - name: Syntax check svc
         run: >
           ansible-playbook playbooks/svc.yml
+          --syntax-check
+          -i inventory/hosts.yml
+
+      - name: Syntax check unifi
+        run: >
+          ansible-playbook playbooks/unifi.yml
           --syntax-check
           -i inventory/hosts.yml

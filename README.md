@@ -46,8 +46,6 @@ Seed these parameters before running any playbook. Parameters marked *auto* are 
 | `/infra/svc/authentik/postgres_password` | SecureString | *auto* — Authentik PostgreSQL password |
 | `/infra/svc/authentik/bootstrap_token` | SecureString | *auto* — Authentik bootstrap API token |
 | `/infra/svc/oidc/<name>/client_secret` | SecureString | *auto* — OIDC client secret per `proxy_services` entry (e.g. `/infra/svc/oidc/pve/client_secret`) |
-| `/infra/svc/unifi/mongo_root_password` | SecureString | *auto* — MongoDB root password for UniFi |
-| `/infra/svc/unifi/mongo_password` | SecureString | *auto* — MongoDB application user password for UniFi |
 
 ---
 
@@ -90,21 +88,33 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml --tags pbs
 ```
 Registers PBS as a PVE storage backend and creates a nightly backup job (`--all 1`). Templates and the PBS VM are automatically excluded. Notifications fire on errors and warnings only.
 
-### 6. Services VM — deploy Traefik, Authentik, UniFi, and Homepage
+### 6. Services VM — deploy Traefik, Authentik, and Homepage
 ```bash
 ansible-playbook -i inventory/hosts.yml playbooks/svc.yml
 ```
-Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik, Authentik, UniFi Network Application, and Homepage as Docker Compose stacks. Also:
+Installs Docker, mounts NFS storage, configures UFW, and deploys Traefik, Authentik, and Homepage as Docker Compose stacks. Also:
 - Generates OIDC client secrets for each `proxy_services` entry and stores them in SSM
-- Auto-generates MongoDB credentials for UniFi and stores them in SSM
 - Templates the Authentik blueprint (`/blueprints/custom/proxy-services.yml`) and applies it on container start — creates OAuth2/OIDC providers and applications for each service
 - Creates Traefik file-provider routes for each service in `proxy_services`
 
 **Post-run:**
 - Complete Authentik initial setup at `https://authentik.<your-domain>/if/flow/initial-setup/`
 - Enable TOTP for your admin account under User Settings → MFA Devices
-- Access UniFi at `https://unifi.<your-domain>/` — on first run the setup wizard allows restoring a `.unf` backup
 - Homepage is available at `https://homepage.<your-domain>/` — edit `roles/svc/templates/homepage/config/services.yaml.j2` to add or remove service tiles
+
+### 6.5. UniFi OS Server — provision VM and install
+UniFi OS Server runs as a dedicated VM (not a Docker container). Provision it via Terraform first, then configure with Ansible.
+
+```bash
+# Provision the VM (from proxmox-terraform)
+./deploy.sh unifi apply
+
+# Configure the VM (install UniFi OS Server binary, configure UFW)
+ansible-playbook -i inventory/hosts.yml playbooks/unifi.yml
+```
+
+**Post-run:**
+- Access UniFi OS Server at `https://unifi.<your-domain>/` — on first run the setup wizard allows restoring a `.unf` backup
 
 ### 7. Configure OIDC realms on PVE and PBS
 ```bash
@@ -182,8 +192,8 @@ ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags traefik
 # Redeploy Authentik (config or version change, re-applies blueprint)
 ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags authentik
 
-# Redeploy UniFi (config or version change)
-ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags unifi
+# UniFi OS Server (re-run after config changes)
+ansible-playbook -i inventory/hosts.yml playbooks/unifi.yml
 
 # Redeploy Homepage (config or version change)
 ansible-playbook -i inventory/hosts.yml playbooks/svc.yml --tags homepage

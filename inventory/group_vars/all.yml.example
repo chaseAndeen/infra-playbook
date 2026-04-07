@@ -74,7 +74,6 @@ svc_nfs_server: "nas.example.com"
 svc_nfs_export: "/mnt/pool/container_data"
 svc_traefik_domain: "traefik.apps.example.com"
 svc_authentik_domain: "authentik.apps.example.com"
-svc_unifi_domain: "unifi.apps.example.com"
 svc_homepage_domain: "homepage.apps.example.com"
 svc_truenas_host: "nas.example.com"     # IP or hostname of TrueNAS — used in homepage services tile
 svc_opnsense_domain: "fw.example.com"   # FQDN of OPNsense — used in homepage services tile
@@ -92,8 +91,6 @@ svc_firewall_rules:
   - { port: "443", proto: tcp, src: "192.168.x.x/24", comment: "HTTPS" }
   - { port: "443", proto: tcp, src: "10.x.x.x/24",    comment: "HTTPS" }
   - { port: "443", proto: tcp, src: "192.168.x.x/24", comment: "HTTPS (apps)" }
-  - { port: "8080", proto: tcp, src: "192.168.x.x/24", comment: "UniFi inform" }
-  - { port: "3478", proto: udp, src: "192.168.x.x/24", comment: "UniFi STUN" }
 
 # Authentik secrets
 authentik_secret_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/authentik/secret_key', profile=aws_profile, region=aws_region) }}"
@@ -101,9 +98,17 @@ authentik_postgres_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/
 authentik_bootstrap_token: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/authentik/bootstrap_token', profile=aws_profile, region=aws_region) }}"
 # cloudflare_token is already defined above — reused for Traefik DNS-01 challenge
 
-# UniFi secrets
-unifi_mongo_root_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/unifi/mongo_root_password', profile=aws_profile, region=aws_region) }}"
-unifi_mongo_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/unifi/mongo_password', profile=aws_profile, region=aws_region) }}"
+# --- UniFi OS Server ---
+unifi_domain: "unifi.apps.example.com"
+
+# UniFi firewall rules (applied on unifi-01 by the unifi role)
+unifi_firewall_rules:
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "192.168.x.x/24", comment: "SSH" }
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "10.x.x.x/24",    comment: "SSH" }
+  - { port: "11443", proto: tcp, src: "0.0.0.0/0", comment: "UniFi OS Server web UI" }
+  - { port: "8080",  proto: tcp, src: "0.0.0.0/0", comment: "UniFi device inform" }
+  - { port: "3478",  proto: udp, src: "0.0.0.0/0", comment: "UniFi STUN" }
+  - { port: "10001", proto: udp, src: "0.0.0.0/0", comment: "UniFi L2 discovery" }
 
 # --- Proxy Services (Traefik + Authentik) ---
 # Central registry for every service that gets a Traefik route and/or Authentik integration.
@@ -142,11 +147,11 @@ proxy_services:
       target: pbs
 
   - name: unifi
-    label: "UniFi Network Application"
-    domain: "unifi.apps.example.com"
-    backend_url: "https://unifi-app:8443"
+    label: "UniFi OS Server"
+    domain: "{{ unifi_domain }}"
+    backend_url: "https://{{ hostvars['unifi-01']['ansible_host'] }}:11443"
     backend_tls_skip_verify: true
-    auth: none   # UniFi has native auth; forward_auth is optional but blocks mobile app access
+    auth: none
 
   - name: homepage
     label: "Homepage"
