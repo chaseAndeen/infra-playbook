@@ -6,13 +6,18 @@ amp_node_type: ads
 # ─── ADS instance ─────────────────────────────────────────────────────────────
 amp_ads_instance_name: "ADS01"
 amp_ads_bind_ip: "0.0.0.0"
-amp_ads_port: 8080
+# amp_ads_port and amp_ads_host are set in inventory/group_vars/all.yml.
 
 # ─── Target node ──────────────────────────────────────────────────────────────
 # The ADS host and port that this target registers back to.
 # Set in group_vars or host_vars for the amp_targets group.
-amp_ads_host: ""   # IP or hostname of amp-01; filled from group_vars
 amp_ads_admin_user: "admin"
+
+# ─── SSM Parameter Paths ─────────────────────────────────────────────────────
+# Override these if your SSM parameter tree uses a different path prefix.
+amp_ssm_admin_password: "/infra/amp/admin_password"
+amp_ssm_licence_key: "/infra/amp/licence_key"
+amp_ssm_oidc_client_secret: "/infra/svc/oidc/amp/client_secret"
 
 # ─── Firewall ─────────────────────────────────────────────────────────────────
 # Inbound rules applied by the firewall task.

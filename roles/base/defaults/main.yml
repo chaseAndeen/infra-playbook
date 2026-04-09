@@ -1,5 +1,5 @@
 ---
-proxmox_ssh_port: 2222
+# proxmox_ssh_port is set in inventory/group_vars/all.yml — not duplicated here.
 
 # --- fail2ban ---
 fail2ban_bantime: 1h

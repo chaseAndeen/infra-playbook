@@ -47,41 +47,6 @@
     path: /tmp/ampinstmgr.deb
     state: absent
 
-# Reverse any previously installed su shim (was added in error — su -i never
-# existed in util-linux; the real fix is running ampinstmgr as the amp user).
-# Only act if su.orig exists — that is the divert marker. If the divert was
-# never applied (or was already reversed), leave /usr/bin/su untouched.
-- name: System | Check if su divert marker exists
-  ansible.builtin.stat:
-    path: /usr/bin/su.orig
-  register: _su_orig
-
-- name: System | Remove su shim if divert was applied
-  ansible.builtin.file:
-    path: /usr/bin/su
-    state: absent
-  when: _su_orig.stat.exists
-
-- name: System | Reverse dpkg-divert for su if applied
-  ansible.builtin.command:
-    cmd: dpkg-divert --remove --rename /usr/bin/su
-    removes: /usr/bin/su.orig
-  changed_when: true
-  when: _su_orig.stat.exists
-
-# Restore the real su binary if missing (e.g. shim was removed but divert
-# reversal didn't restore it because su.orig was already absent).
-- name: System | Check if su binary is present
-  ansible.builtin.stat:
-    path: /usr/bin/su
-  register: _su_binary
-
-- name: System | Restore real su binary via util-linux reinstall
-  ansible.builtin.command:
-    cmd: apt-get install --reinstall -y util-linux
-  when: not _su_binary.stat.exists
-  changed_when: true
-
 - name: System | Create amp user for AMP instance management
   ansible.builtin.user:
     name: amp

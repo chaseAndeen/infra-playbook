@@ -19,6 +19,8 @@ cp inventory/hosts.yml.example inventory/hosts.yml
 cp inventory/group_vars/all.yml.example inventory/group_vars/all.yml
 ```
 
+Edit `all.yml` and set `base_domain` to your primary domain. All service FQDNs, email addresses, and OIDC redirect URIs are derived from it — it is the only value you need to change for a new deployment.
+
 ---
 
 ## SSM Parameters

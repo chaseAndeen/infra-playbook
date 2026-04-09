@@ -4,7 +4,7 @@
 - name: OIDC | Fetch ADS admin password from SSM
   ansible.builtin.command: >
     aws ssm get-parameter
-    --name "/infra/amp/admin_password"
+    --name "{{ amp_ssm_admin_password }}"
     --with-decryption
     --query "Parameter.Value"
     --output text
@@ -19,7 +19,7 @@
 - name: OIDC | Fetch client secret from SSM
   ansible.builtin.command: >
     aws ssm get-parameter
-    --name "/infra/svc/oidc/amp/client_secret"
+    --name "{{ amp_ssm_oidc_client_secret }}"
     --with-decryption
     --query "Parameter.Value"
     --output text

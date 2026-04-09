@@ -4,7 +4,7 @@
 - name: Target | Fetch admin password from SSM
   ansible.builtin.command: >
     aws ssm get-parameter
-    --name "/infra/amp/admin_password"
+    --name "{{ amp_ssm_admin_password }}"
     --with-decryption
     --query "Parameter.Value"
     --output text
@@ -19,7 +19,7 @@
 - name: Target | Fetch licence key from SSM
   ansible.builtin.command: >
     aws ssm get-parameter
-    --name "/infra/amp/licence_key"
+    --name "{{ amp_ssm_licence_key }}"
     --with-decryption
     --query "Parameter.Value"
     --output text
@@ -79,6 +79,7 @@
   ansible.builtin.file:
     path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated"
     state: touch
+    mode: "0600"
     owner: amp
     group: amp
     modification_time: preserve

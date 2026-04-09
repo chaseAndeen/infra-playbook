@@ -15,17 +15,17 @@ svc_nfs_options: "defaults,_netdev,nfsvers=4,hard,intr"
 
 # --- Traefik ---
 svc_traefik_version: "v3"
-svc_traefik_domain: "traefik.svc.kernelstack.dev"
+# svc_traefik_domain is set in inventory/group_vars/all.yml
 
 # --- Authentik ---
 svc_authentik_version: "2024.12"
-svc_authentik_domain: "authentik.svc.kernelstack.dev"
+# svc_authentik_domain is set in inventory/group_vars/all.yml
 svc_postgres_version: "16"
 svc_redis_version: "7"
 
 # --- Homepage ---
 svc_homepage_version: "latest"
-svc_homepage_domain: "homepage.svc.kernelstack.dev"
+# svc_homepage_domain is set in inventory/group_vars/all.yml
 
 # --- Firewall ---
 svc_apps_cidr: "192.168.20.0/24"

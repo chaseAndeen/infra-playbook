@@ -3,7 +3,16 @@
 aws_profile: "YourSSOProfile"
 aws_region: "us-east-1"
 
-# --- User SSH Public Keys ---
+# --- Base Domain ---
+# All service FQDNs and email addresses are derived from this value.
+# Change this one variable to adapt the entire playbook to your domain.
+base_domain: "example.com"
+
+# --- TrueNAS Host ---
+# Single source of truth for the TrueNAS IP/hostname.
+truenas_host: "192.168.x.x"
+
+# --- Credentials ---
 admin_public_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/public_key', profile=aws_profile, region=aws_region) }}"
 ansible_public_key: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/ansible_public_key', profile=aws_profile, region=aws_region) }}"
 admin_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/admin_password', profile=aws_profile, region=aws_region) }}"
@@ -13,10 +22,10 @@ root_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/root_passwo
 ansible_service_user: ansible
 
 # --- SMTP Notifications ---
-smtp_server: "email-smtp.us-east-1.amazonaws.com"
+smtp_server: "email-smtp.{{ aws_region }}.amazonaws.com"
 smtp_port: 587
-smtp_from: "alerts@example.com"
-smtp_to: "admin@example.com"
+smtp_from: "alerts@{{ base_domain }}"
+smtp_to: "admin@{{ base_domain }}"
 cloudflare_token: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/cloudflare/api_token', profile=aws_profile, region=aws_region) }}"
 cloudflare_zone_id: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/cloudflare/zone_id', profile=aws_profile, region=aws_region) }}"
 
@@ -25,14 +34,14 @@ smtp_user: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/user', pro
 smtp_pass: "{{ lookup('amazon.aws.ssm_parameter', '/infra/common/smtp/pass', profile=aws_profile, region=aws_region) }}"
 
 # --- SSL Cert ---
-cert_email: admin@example.com
+cert_email: "admin@{{ base_domain }}"
 
 # --- Firewall Settings ---
 mgmt_cidrs:
   - 192.168.x.x/24
   - 10.x.x.x/24
 
-pve_network_cidr: "192.168.x.x/24"
+pve_network_cidr: "{{ mgmt_cidrs | first }}"
 svc_network_cidr: "192.168.x.x/24"
 
 proxmox_firewall_enable_datacenter: true
@@ -49,10 +58,10 @@ proxmox_manage_host_fw: true
 # Email addresses (matching the username_claim) to grant Administrator in PVE.
 # PVE user ID format: <email>@<oidc.realm_name>
 pve_oidc_admins:
-  - "admin@example.com"
+  - "admin@{{ base_domain }}"
 
 pbs_oidc_admins:
-  - "admin@example.com"
+  - "admin@{{ base_domain }}"
 
 # --- Global Proxmox Settings ---
 pve_bridge: "vmbr0"
@@ -70,13 +79,13 @@ terraform_tmp_pass: "{{ lookup('amazon.aws.ssm_parameter', '/infra/proxmox/terra
 packer_api_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/proxmox/packer_api_password', profile=aws_profile, region=aws_region) }}"
 
 # --- Services VM (svc-01) ---
-svc_nfs_server: "nas.example.com"
+svc_nfs_server: "{{ truenas_host }}"
 svc_nfs_export: "/mnt/pool/container_data"
-svc_traefik_domain: "traefik.apps.example.com"
-svc_authentik_domain: "authentik.apps.example.com"
-svc_homepage_domain: "homepage.apps.example.com"
-svc_truenas_host: "nas.example.com"     # IP or hostname of TrueNAS — used in homepage services tile
-svc_opnsense_domain: "fw.example.com"   # FQDN of OPNsense — used in homepage services tile
+svc_traefik_domain: "traefik.svc.{{ base_domain }}"
+svc_authentik_domain: "authentik.svc.{{ base_domain }}"
+svc_homepage_domain: "homepage.svc.{{ base_domain }}"
+svc_truenas_host: "{{ truenas_host }}"
+svc_opnsense_domain: "fw.infra.{{ base_domain }}"   # FQDN of OPNsense — used in homepage services tile
 
 # --- svc-01 UFW Rules ---
 # Central registry for every inbound port opened on svc-01.
@@ -102,12 +111,10 @@ authentik_bootstrap_token: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/au
 amp_ads_host: "192.168.20.21"          # amp-01 — used by amp-02 to register itself
 amp_ads_port: 8080
 amp_ads_admin_user: "admin"
-amp_admin_email: "admin@example.com"
-amp_domain: "amp.apps.example.com"
+amp_admin_email: "admin@{{ base_domain }}"
+amp_domain: "amp.svc.{{ base_domain }}"
 
 # Firewall rules for amp-01 (ADS management node)
-# amp-02 target firewall rules are defined in host_vars/amp-02.yml alongside
-# your game server port ranges once you know what instances you'll run.
 amp_ads_firewall_rules:
   - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "192.168.x.x/24", comment: "SSH" }
   - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "10.x.x.x/24",    comment: "SSH" }
@@ -118,7 +125,7 @@ amp_ads_firewall_rules:
 amp_target_firewall_rules:
   - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "192.168.x.x/24", comment: "SSH" }
   - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "10.x.x.x/24",    comment: "SSH" }
-  - { port: "8080", proto: tcp, src: "192.168.20.21", comment: "ADS controller access" }
+  - { port: "8080", proto: tcp, src: "{{ amp_ads_host }}", comment: "ADS controller access" }
   # Game server ports — add ranges here as you create instances, e.g.:
   # - { port: "25565", proto: tcp, src: "0.0.0.0/0", comment: "Minecraft Java" }
   # - { port: "19132", proto: udp, src: "0.0.0.0/0", comment: "Minecraft Bedrock" }
@@ -129,7 +136,7 @@ amp_target_firewall_rules:
 #   /infra/amp/admin_password — AMP web UI admin password (auto-generated on first run)
 
 # --- UniFi OS Server ---
-unifi_domain: "unifi.apps.example.com"
+unifi_domain: "unifi.svc.{{ base_domain }}"
 
 # UniFi firewall rules (applied on unifi-01 by the unifi role)
 unifi_firewall_rules:
@@ -152,7 +159,7 @@ unifi_firewall_rules:
 proxy_services:
   - name: pve
     label: "Proxmox VE"
-    domain: "pve.apps.example.com"
+    domain: "pve.svc.{{ base_domain }}"
     backend_url: "https://{{ hostvars['pve-node-01']['ansible_host'] }}:{{ proxmox_gui_port }}"
     backend_tls_skip_verify: true
     auth: oidc
@@ -165,7 +172,7 @@ proxy_services:
 
   - name: pbs
     label: "Proxmox Backup Server"
-    domain: "pbs.apps.example.com"
+    domain: "pbs.svc.{{ base_domain }}"
     backend_url: "https://{{ hostvars['pbs-01']['ansible_host'] }}:{{ pbs_gui_port }}"
     backend_tls_skip_verify: true
     auth: oidc
@@ -185,7 +192,7 @@ proxy_services:
 
   - name: homepage
     label: "Homepage"
-    domain: "homepage.apps.example.com"
+    domain: "{{ svc_homepage_domain }}"
     backend_url: "http://homepage:3000"
     auth: none   # Public dashboard — add forward_auth if you want to gate it behind Authentik
 
