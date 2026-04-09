@@ -11,10 +11,6 @@ pbs_nfs_opts: "defaults,nofail,_netdev,nfsvers=4"
 pbs_nfs_uid: 2000
 pbs_nfs_gid: 2000
 
-# --- Retention policy ---
-pbs_keep_daily: 7
-pbs_keep_weekly: 4
-
 # --- Schedules ---
 pbs_prune_schedule: daily
 pbs_gc_schedule: weekly

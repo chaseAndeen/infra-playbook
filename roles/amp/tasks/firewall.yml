@@ -1,0 +1,22 @@
+---
+- name: Firewall | Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Firewall | Apply rules
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    src: "{{ item.src }}"
+    comment: "{{ item.comment | default('') }}"
+  loop: "{{ amp_firewall_rules }}"
+  loop_control:
+    label: "{{ item.comment | default(item.port) }} from {{ item.src }}"
+
+- name: Firewall | Enable UFW with default deny
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming

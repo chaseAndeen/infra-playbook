@@ -1,0 +1,4 @@
+---
+# Firewall rules applied to amp-01 (ADS management node).
+# Only the management VLAN needs access to the web UI; Traefik proxies external traffic.
+amp_firewall_rules: "{{ amp_ads_firewall_rules }}"

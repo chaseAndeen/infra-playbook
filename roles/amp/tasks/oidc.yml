@@ -1,0 +1,422 @@
+---
+# ─── Secrets from SSM ─────────────────────────────────────────────────────────
+
+- name: OIDC | Fetch ADS admin password from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/amp/admin_password"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_admin_password
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: OIDC | Fetch client secret from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/oidc/amp/client_secret"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_oidc_client_secret
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+# ─── Pre-checks (dry-run) ─────────────────────────────────────────────────────
+# Detect which settings need changing so we only stop/start ADS when necessary.
+
+- name: OIDC | Check if UseOIDC needs enabling
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.UseOIDC='
+    line: 'Login.UseOIDC=True'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_use_check
+
+- name: OIDC | Check if provider friendly name needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCProviderFriendlyName='
+    line: 'Login.OIDCProviderFriendlyName=Authentik'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_name_check
+
+# client_id and client_secret: AMP encrypts these after first write (enc:...).
+# Read the raw values and only flag as needing update if empty or plaintext.
+- name: OIDC | Read current OIDCClientID from config
+  ansible.builtin.command:
+    cmd: "grep '^Login\\.OIDCClientID=' /home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+  register: _amp_oidc_clientid_raw
+  changed_when: false
+  failed_when: false
+
+- name: OIDC | Set client ID change fact
+  ansible.builtin.set_fact:
+    _amp_oidc_client_id_check:
+      changed: >-
+        {{
+          not (_amp_oidc_clientid_raw.stdout | default('') | regex_search('enc:|=amp$'))
+        }}
+
+- name: OIDC | Read current OIDCClientSecret from config
+  ansible.builtin.command:
+    cmd: "grep '^Login\\.OIDCClientSecret=' /home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+  register: _amp_oidc_secret_raw
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: OIDC | Set client secret change fact
+  ansible.builtin.set_fact:
+    _amp_oidc_secret_check:
+      changed: >-
+        {{
+          not (_amp_oidc_secret_raw.stdout | default('') | regex_search('enc:'))
+        }}
+
+- name: OIDC | Check if redirect URI needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCRedirectUri='
+    line: "Login.OIDCRedirectUri=https://{{ amp_domain }}/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_redirect_check
+
+- name: OIDC | Check if authorize endpoint needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCAuthorizeEndpoint='
+    line: "Login.OIDCAuthorizeEndpoint=https://{{ svc_authentik_domain }}/application/o/authorize/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_authorize_check
+
+- name: OIDC | Check if token endpoint needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCTokenEndpoint='
+    line: "Login.OIDCTokenEndpoint=https://{{ svc_authentik_domain }}/application/o/token/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_token_check
+
+- name: OIDC | Check if userinfo endpoint needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCUserInfoEndpoint='
+    line: "Login.OIDCUserInfoEndpoint=https://{{ svc_authentik_domain }}/application/o/userinfo/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_userinfo_check
+
+- name: OIDC | Check if validation endpoint needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCValidationEndpoint='
+    line: "Login.OIDCValidationEndpoint=https://{{ svc_authentik_domain }}/application/o/introspect/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_validation_check
+
+- name: OIDC | Check if logout endpoint needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCLogoutEndpoint='
+    line: "Login.OIDCLogoutEndpoint=https://{{ svc_authentik_domain }}/application/o/amp/end-session/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_logout_check
+
+- name: OIDC | Check if username claim needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCUsernameClaim='
+    line: 'Login.OIDCUsernameClaim=preferred_username'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_oidc_claim_check
+
+# ─── Apply OIDC settings ──────────────────────────────────────────────────────
+
+- name: OIDC | Stop ADS to apply OIDC config
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr stop {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_oidc_use_check.changed or
+    _amp_oidc_name_check.changed or
+    _amp_oidc_client_id_check.changed or
+    _amp_oidc_secret_check.changed or
+    _amp_oidc_redirect_check.changed or
+    _amp_oidc_authorize_check.changed or
+    _amp_oidc_token_check.changed or
+    _amp_oidc_userinfo_check.changed or
+    _amp_oidc_validation_check.changed or
+    _amp_oidc_logout_check.changed or
+    _amp_oidc_claim_check.changed
+
+- name: OIDC | Enable OIDC login
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.UseOIDC='
+    line: 'Login.UseOIDC=True'
+    owner: amp
+    group: amp
+
+- name: OIDC | Set provider friendly name
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCProviderFriendlyName='
+    line: 'Login.OIDCProviderFriendlyName=Authentik'
+    owner: amp
+    group: amp
+
+- name: OIDC | Set client ID
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCClientID='
+    line: 'Login.OIDCClientID=amp'
+    owner: amp
+    group: amp
+  when: _amp_oidc_client_id_check.changed | bool
+
+- name: OIDC | Set client secret
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCClientSecret='
+    line: "Login.OIDCClientSecret={{ _amp_oidc_client_secret.stdout | trim }}"
+    owner: amp
+    group: amp
+  no_log: true
+  when: _amp_oidc_secret_check.changed | bool
+
+- name: OIDC | Set redirect URI
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCRedirectUri='
+    line: "Login.OIDCRedirectUri=https://{{ amp_domain }}/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set authorize endpoint
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCAuthorizeEndpoint='
+    line: "Login.OIDCAuthorizeEndpoint=https://{{ svc_authentik_domain }}/application/o/authorize/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set token endpoint
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCTokenEndpoint='
+    line: "Login.OIDCTokenEndpoint=https://{{ svc_authentik_domain }}/application/o/token/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set userinfo endpoint
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCUserInfoEndpoint='
+    line: "Login.OIDCUserInfoEndpoint=https://{{ svc_authentik_domain }}/application/o/userinfo/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set validation (introspect) endpoint
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCValidationEndpoint='
+    line: "Login.OIDCValidationEndpoint=https://{{ svc_authentik_domain }}/application/o/introspect/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set logout endpoint
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCLogoutEndpoint='
+    line: "Login.OIDCLogoutEndpoint=https://{{ svc_authentik_domain }}/application/o/amp/end-session/"
+    owner: amp
+    group: amp
+
+- name: OIDC | Set username claim to preferred_username
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.OIDCUsernameClaim='
+    line: 'Login.OIDCUsernameClaim=preferred_username'
+    owner: amp
+    group: amp
+
+- name: OIDC | Start ADS after OIDC config changes
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr start {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_oidc_use_check.changed or
+    _amp_oidc_name_check.changed or
+    _amp_oidc_client_id_check.changed or
+    _amp_oidc_secret_check.changed or
+    _amp_oidc_redirect_check.changed or
+    _amp_oidc_authorize_check.changed or
+    _amp_oidc_token_check.changed or
+    _amp_oidc_userinfo_check.changed or
+    _amp_oidc_validation_check.changed or
+    _amp_oidc_logout_check.changed or
+    _amp_oidc_claim_check.changed
+
+# ─── Super Admin for OIDC admins ─────────────────────────────────────────────
+# AMP creates a per-user role (__AMPUSER_<name>) whose ID matches the user's ID.
+# Because of this UUID collision, adding the user to Super Admins via MemberIDs
+# does not persist — AMP strips it on next write (treats it as a role reference,
+# not a user reference). The correct approach is two complementary steps:
+#   1. UserData.json — IsSuperAdmin: true (sets the IsSuperUser flag in the UI)
+#   2. SetAMPRolePermission API — grants * to the __AMPUSER_<name> role (runtime access)
+# Both persist across restarts. Skipped if the user hasn't logged in yet.
+# Check outputs "needs_update <user_id>" so the API task can use the role ID directly.
+
+- name: OIDC | Check Super Admin status for configured admin users
+  ansible.builtin.shell: |
+    python3 << 'EOF'
+    import json, sys
+    instance = '{{ amp_ads_instance_name }}'
+    username = '{{ item }}'
+
+    users = json.load(open(f'/home/amp/.ampdata/instances/{instance}/UserData.json'))
+    user = next((u for u in users.values() if u.get('Name') == username), None)
+    if not user:
+        print('missing')
+        sys.exit(0)
+
+    roles = json.load(open(f'/home/amp/.ampdata/instances/{instance}/RoleData.json'))
+    user_role = next((r for r in roles.values() if r.get('Name') == f'__AMPUSER_{username}'), None)
+
+    is_super = user.get('IsSuperAdmin', False)
+    has_star = user_role is not None and '*' in user_role.get('Permissions', [])
+
+    if is_super and has_star:
+        print('ok')
+    else:
+        print(f'needs_update {user["ID"]}')
+    EOF
+  loop: "{{ amp_oidc_admins }}"
+  register: _amp_superadmin_check
+  changed_when: false
+
+- name: OIDC | Stop ADS to patch UserData.json
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr stop {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: _amp_superadmin_check.results | selectattr('stdout', 'search', 'needs_update') | list | length > 0
+
+- name: OIDC | Wait for ADS port to close before patching files
+  ansible.builtin.wait_for:
+    host: "{{ amp_ads_host }}"
+    port: "{{ amp_ads_port }}"
+    state: stopped
+    timeout: 60
+  delegate_to: localhost
+  become: false
+  when: _amp_superadmin_check.results | selectattr('stdout', 'search', 'needs_update') | list | length > 0
+
+- name: OIDC | Set IsSuperAdmin in UserData.json
+  ansible.builtin.shell: |
+    python3 << 'EOF'
+    import json
+    instance = '{{ amp_ads_instance_name }}'
+    username = '{{ item.item }}'
+
+    upath = f'/home/amp/.ampdata/instances/{instance}/UserData.json'
+    users = json.load(open(upath))
+    user = next((u for u in users.values() if u.get('Name') == username), None)
+    if not user:
+        print(f'User {username} not found, skipping')
+        exit(0)
+
+    user['IsSuperAdmin'] = True
+    open(upath, 'w').write(json.dumps(users, indent=2))
+    print(f'Set IsSuperAdmin=True for {username}')
+    EOF
+  loop: "{{ _amp_superadmin_check.results }}"
+  when: "'needs_update' in item.stdout"
+
+- name: OIDC | Start ADS after UserData patch
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr start {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: _amp_superadmin_check.results | selectattr('stdout', 'search', 'needs_update') | list | length > 0
+
+- name: OIDC | Wait for ADS API to be ready after restart
+  ansible.builtin.uri:
+    url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/API/Core/GetStatus"
+    method: GET
+    status_code: 200
+  register: _amp_api_ready
+  retries: 24
+  delay: 5
+  until: _amp_api_ready.status == 200
+  delegate_to: localhost
+  become: false
+  when: _amp_superadmin_check.results | selectattr('stdout', 'search', 'needs_update') | list | length > 0
+
+- name: OIDC | Login to ADS as admin
+  ansible.builtin.uri:
+    url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/API/Core/Login"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      username: "{{ amp_ads_admin_user }}"
+      password: "{{ _amp_admin_password.stdout | trim }}"
+      token: ""
+      rememberMe: false
+    status_code: 200
+  register: _amp_admin_session
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when: _amp_superadmin_check.results | selectattr('stdout', 'search', 'needs_update') | list | length > 0
+
+- name: OIDC | Grant * permission to user role via ADS API
+  ansible.builtin.uri:
+    url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/API/Core/SetAMPRolePermission"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      SESSIONID: "{{ _amp_admin_session.json.sessionID }}"
+      RoleId: "{{ item.stdout.split()[1] }}"
+      PermissionNode: "*"
+      Enabled: true
+    status_code: 200
+  register: _amp_role_perm_result
+  failed_when: not _amp_role_perm_result.json.Status
+  delegate_to: localhost
+  become: false
+  loop: "{{ _amp_superadmin_check.results }}"
+  when: "'needs_update' in item.stdout"

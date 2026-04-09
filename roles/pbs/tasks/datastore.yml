@@ -52,13 +52,13 @@
     mode: "0640"
   notify: Restart proxmox-backup
 
-- name: PBS | Write prune config
-  ansible.builtin.template:
-    src: prune.cfg.j2
-    dest: /etc/proxmox-backup/prune.cfg
-    owner: root
-    group: backup
-    mode: "0640"
+# Retention is now managed by PVE backup job --prune-backups flags, not a
+# PBS-side prune job. Remove prune.cfg so PBS doesn't apply a conflicting
+# global retention policy over the per-job settings.
+- name: PBS | Remove legacy prune.cfg (retention managed by PVE backup jobs)
+  ansible.builtin.file:
+    path: /etc/proxmox-backup/prune.cfg
+    state: absent
   notify: Restart proxmox-backup
 
 - name: PBS | Fetch TLS certificate fingerprint

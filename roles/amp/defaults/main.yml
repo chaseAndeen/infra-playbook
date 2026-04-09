@@ -1,0 +1,31 @@
+---
+# ─── AMP node type ────────────────────────────────────────────────────────────
+# Set per-host in inventory: amp_node_type: ads | target
+amp_node_type: ads
+
+# ─── ADS instance ─────────────────────────────────────────────────────────────
+amp_ads_instance_name: "ADS01"
+amp_ads_bind_ip: "0.0.0.0"
+amp_ads_port: 8080
+
+# ─── Target node ──────────────────────────────────────────────────────────────
+# The ADS host and port that this target registers back to.
+# Set in group_vars or host_vars for the amp_targets group.
+amp_ads_host: ""   # IP or hostname of amp-01; filled from group_vars
+amp_ads_admin_user: "admin"
+
+# ─── Firewall ─────────────────────────────────────────────────────────────────
+# Inbound rules applied by the firewall task.
+# Game port ranges are opened on the target node only (see target.yml).
+amp_firewall_rules: []
+
+# ─── Backup NFS ───────────────────────────────────────────────────────────────
+# TrueNAS NFS share for game-server backup storage (target node only).
+# uid/gid must match TrueNAS amp_user/amp_group (see truenas-playbook datasets).
+# TrueNAS uses mapall → amp_user so all writes land as uid 2003 on TrueNAS.
+amp_backup_nfs_server: "{{ svc_nfs_server }}"
+amp_backup_nfs_export: "/mnt/vault/amp_backups"
+amp_backup_nfs_mount: "/mnt/amp-backups"
+amp_backup_nfs_opts: "defaults,nofail,_netdev,nfsvers=4"
+amp_backup_uid: 2003
+amp_backup_gid: 2003

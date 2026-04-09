@@ -125,10 +125,15 @@
     group: root
     mode: "0755"
 
+- name: Authentik | Remove legacy proxy-services.yml (wrong extension, not picked up by Authentik)
+  ansible.builtin.file:
+    path: "{{ svc_compose_dir }}/authentik/blueprints/proxy-services.yml"
+    state: absent
+
 - name: Authentik | Template proxy-services blueprint
   ansible.builtin.template:
     src: authentik/blueprints/proxy-services.yml.j2
-    dest: "{{ svc_compose_dir }}/authentik/blueprints/proxy-services.yml"
+    dest: "{{ svc_compose_dir }}/authentik/blueprints/proxy-services.yaml"
     owner: root
     group: root
     mode: "0644"
@@ -165,3 +170,98 @@
     chdir: "{{ svc_compose_dir }}/authentik"
   register: _authentik_up
   changed_when: "'Started' in _authentik_up.stdout or 'Recreated' in _authentik_up.stdout"
+
+# Flush any pending restart before making API calls — ensures Authentik is running
+# on the current config before we try to manage blueprints.
+- name: Authentik | Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Authentik | Wait for API to become ready
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/users/me/"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _authentik_api_ready
+  retries: 30
+  delay: 5
+  until: _authentik_api_ready.status == 200
+  delegate_to: localhost
+  become: false
+
+# ─── Blueprint lifecycle management ──────────────────────────────────────────
+# Authentik's autodiscovery fires on worker restart but is subject to timing
+# races that can silently drop the registration. We manage the blueprint
+# instance directly via API so the playbook is the sole source of truth.
+
+- name: Authentik | Check if proxy-services blueprint instance exists
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/?search=proxy-services"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _blueprint_list
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Register proxy-services blueprint instance
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      name: "proxy-services"
+      path: "custom/proxy-services.yaml"
+      enabled: true
+      context: {}
+    status_code: [200, 201]
+  register: _blueprint_create
+  delegate_to: localhost
+  become: false
+  when: _blueprint_list.json.pagination.count | int == 0
+
+- name: Authentik | Get current blueprint file hash from available list
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/available/"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _blueprints_available
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Set blueprint management facts
+  ansible.builtin.set_fact:
+    _blueprint_pk: >-
+      {{
+        (_blueprint_list.json.results | first).pk
+        if (_blueprint_list.json.pagination.count | int) > 0
+        else _blueprint_create.json.pk
+      }}
+    _blueprint_file_hash: >-
+      {{
+        (_blueprints_available.json
+          | selectattr('path', 'equalto', 'custom/proxy-services.yaml')
+          | list | first).hash
+      }}
+    _blueprint_applied_hash: >-
+      {{
+        (_blueprint_list.json.results | first).last_applied_hash
+        if (_blueprint_list.json.pagination.count | int) > 0
+        else ''
+      }}
+
+- name: Authentik | Apply blueprint if file changed or not yet applied
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/{{ _blueprint_pk }}/apply/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _blueprint_apply
+  failed_when: _blueprint_apply.json.status != 'successful'
+  delegate_to: localhost
+  become: false
+  when: _blueprint_applied_hash != _blueprint_file_hash

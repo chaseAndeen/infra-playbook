@@ -1,0 +1,53 @@
+---
+# Run order matters: ADS must be up before the target play registers against it.
+#
+# Full deploy:   ansible-playbook playbooks/amp.yml
+# ADS only:      ansible-playbook playbooks/amp.yml --limit amp_ads
+# Target only:   ansible-playbook playbooks/amp.yml --limit amp_targets
+# Specific tags: ansible-playbook playbooks/amp.yml --tags system,ads
+
+- name: AMP Management Node (ADS controller)
+  hosts: amp_ads
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Fetch ansible SSH key from SSM
+      ansible.builtin.import_tasks: tasks/fetch_ssh_key.yml
+      tags: always
+
+    - name: Gather facts
+      ansible.builtin.gather_facts:
+      tags: always
+
+  roles:
+    - base
+    - amp
+
+  post_tasks:
+    - name: Clean up temp SSH key
+      ansible.builtin.import_tasks: tasks/cleanup_ssh_key.yml
+      tags: always
+
+- name: AMP Target Node (game server worker)
+  hosts: amp_targets
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Fetch ansible SSH key from SSM
+      ansible.builtin.import_tasks: tasks/fetch_ssh_key.yml
+      tags: always
+
+    - name: Gather facts
+      ansible.builtin.gather_facts:
+      tags: always
+
+  roles:
+    - base
+    - amp
+
+  post_tasks:
+    - name: Clean up temp SSH key
+      ansible.builtin.import_tasks: tasks/cleanup_ssh_key.yml
+      tags: always

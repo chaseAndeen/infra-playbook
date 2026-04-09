@@ -98,6 +98,36 @@ authentik_postgres_password: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/
 authentik_bootstrap_token: "{{ lookup('amazon.aws.ssm_parameter', '/infra/svc/authentik/bootstrap_token', profile=aws_profile, region=aws_region) }}"
 # cloudflare_token is already defined above — reused for Traefik DNS-01 challenge
 
+# --- AMP (CubeCoders Application Management Panel) ---
+amp_ads_host: "192.168.20.21"          # amp-01 — used by amp-02 to register itself
+amp_ads_port: 8080
+amp_ads_admin_user: "admin"
+amp_admin_email: "admin@example.com"
+amp_domain: "amp.apps.example.com"
+
+# Firewall rules for amp-01 (ADS management node)
+# amp-02 target firewall rules are defined in host_vars/amp-02.yml alongside
+# your game server port ranges once you know what instances you'll run.
+amp_ads_firewall_rules:
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "192.168.x.x/24", comment: "SSH" }
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "10.x.x.x/24",    comment: "SSH" }
+  - { port: "8080", proto: tcp, src: "192.168.x.x/24", comment: "AMP web UI (via Traefik)" }
+
+# Firewall rules for amp-02 (target/worker node)
+# Extend this list with game-specific port ranges as you add instances.
+amp_target_firewall_rules:
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "192.168.x.x/24", comment: "SSH" }
+  - { port: "{{ proxmox_ssh_port }}", proto: tcp, src: "10.x.x.x/24",    comment: "SSH" }
+  - { port: "8080", proto: tcp, src: "192.168.20.21", comment: "ADS controller access" }
+  # Game server ports — add ranges here as you create instances, e.g.:
+  # - { port: "25565", proto: tcp, src: "0.0.0.0/0", comment: "Minecraft Java" }
+  # - { port: "19132", proto: udp, src: "0.0.0.0/0", comment: "Minecraft Bedrock" }
+  # - { port: "2456:2458", proto: udp, src: "0.0.0.0/0", comment: "Valheim" }
+
+# AMP secrets sourced automatically from AWS SSM:
+#   /infra/amp/licence_key    — CubeCoders AMP licence key
+#   /infra/amp/admin_password — AMP web UI admin password (auto-generated on first run)
+
 # --- UniFi OS Server ---
 unifi_domain: "unifi.apps.example.com"
 
@@ -158,6 +188,12 @@ proxy_services:
     domain: "homepage.apps.example.com"
     backend_url: "http://homepage:3000"
     auth: none   # Public dashboard — add forward_auth if you want to gate it behind Authentik
+
+  - name: amp
+    label: "AMP Game Panel"
+    domain: "{{ amp_domain }}"
+    backend_url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}"
+    auth: none   # AMP has its own login — add forward_auth for a second factor
 
   # Example: service with no native auth — use forward_auth to gate it behind Authentik
   # - name: my-dashboard
