@@ -1,0 +1,300 @@
+---
+# ─── Secrets from SSM ─────────────────────────────────────────────────────────
+
+- name: Target | Fetch admin password from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "{{ amp_ssm_admin_password }}"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_admin_password
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Target | Fetch licence key from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "{{ amp_ssm_licence_key }}"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_licence_key
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+# ─── Controller ADS Instance ──────────────────────────────────────────────────
+# The target node runs its own ADS instance that the main ADS (amp-01) connects
+# to in order to provision game server instances on this machine.
+
+- name: Target | Check if controller ADS instance already exists
+  ansible.builtin.stat:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}"
+  register: _amp_target_instance_dir
+
+# Must run as amp user — see ads.yml comment for the full explanation.
+- name: Target | Create controller ADS instance via QuickStart
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr --QuickStart
+    "{{ amp_ads_admin_user }}"
+    "{{ _amp_admin_password.stdout | trim }}"
+    "{{ amp_ads_bind_ip }}"
+    {{ amp_ads_port }}
+  no_log: true
+  when: not _amp_target_instance_dir.stat.exists
+
+# ─── Licence Activation ───────────────────────────────────────────────────────
+# Gated on a marker file so we don't hit CubeCoders' licence server on every
+# playbook run. To force re-activation (e.g. after re-enabling a disabled key),
+# delete /home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated
+# and re-run the playbook.
+
+- name: Target | Check if instance is already activated
+  ansible.builtin.stat:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated"
+  register: _amp_target_activated
+
+- name: Target | Activate controller ADS with licence key
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr --ReactivateInstance
+    "{{ amp_ads_instance_name }}"
+    "{{ _amp_licence_key.stdout | trim }}"
+  no_log: true
+  register: _amp_target_activate
+  changed_when: "'already' not in _amp_target_activate.stdout | default('')"
+  failed_when: >
+    _amp_target_activate.rc != 0 and
+    'DisabledKey' not in _amp_target_activate.stdout | default('')
+  when: not _amp_target_activated.stat.exists
+
+- name: Target | Write activation marker
+  ansible.builtin.file:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated"
+    state: touch
+    mode: "0600"
+    owner: amp
+    group: amp
+    modification_time: preserve
+    access_time: preserve
+  when: >
+    not (_amp_target_activate is skipped) and
+    _amp_target_activate.rc | default(1) == 0 and
+    'DisabledKey' not in _amp_target_activate.stdout | default('')
+
+# ─── Target Auth Configuration ────────────────────────────────────────────────
+# The target ADS must delegate auth to the controller (amp-01) so that the
+# controller can connect using passthrough tokens. Settings are applied while
+# the instance is stopped to avoid config-file conflicts.
+# Dry-run the lineinfile checks first so we only stop/start when needed.
+
+- name: Target | Check if passthrough auth needs enabling
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Security\.EnablePassthruAuth='
+    line: 'Security.EnablePassthruAuth=True'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_passthru_check
+
+- name: Target | Check if auth server delegation needs enabling
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.UseAuthServer='
+    line: 'Login.UseAuthServer=True'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_use_auth_server_check
+
+- name: Target | Check if auth server URL needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.AuthServerURL='
+    line: "Login.AuthServerURL=http://{{ amp_ads_host }}:{{ amp_ads_port }}/"
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_auth_url_check
+
+- name: Target | Check if ADS standalone mode needs setting
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/ADSModule.kvp"
+    regexp: '^ADS\.Mode='
+    line: 'ADS.Mode=Standalone'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_standalone_check
+
+- name: Target | Stop ADS to apply auth config
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr stop {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_passthru_check.changed or
+    _amp_use_auth_server_check.changed or
+    _amp_auth_url_check.changed or
+    _amp_standalone_check.changed
+
+- name: Target | Enable passthrough authentication
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Security\.EnablePassthruAuth='
+    line: 'Security.EnablePassthruAuth=True'
+    owner: amp
+    group: amp
+
+- name: Target | Point auth server at main ADS controller
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.UseAuthServer='
+    line: 'Login.UseAuthServer=True'
+    owner: amp
+    group: amp
+
+- name: Target | Set auth server URL to main ADS
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Login\.AuthServerURL='
+    line: "Login.AuthServerURL=http://{{ amp_ads_host }}:{{ amp_ads_port }}/"
+    owner: amp
+    group: amp
+
+- name: Target | Set ADS mode to Standalone in ADSModule.kvp
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/ADSModule.kvp"
+    regexp: '^ADS\.Mode='
+    line: 'ADS.Mode=Standalone'
+    owner: amp
+    group: amp
+
+# Start only if we stopped for config changes.
+- name: Target | Start ADS instance after config changes
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr start {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_passthru_check.changed or
+    _amp_use_auth_server_check.changed or
+    _amp_auth_url_check.changed or
+    _amp_standalone_check.changed
+
+- name: Target | Enable and start AMP service
+  ansible.builtin.systemd:
+    name: ampinstmgr
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Target | Wait for controller ADS to become available
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ amp_ads_port }}/API/Core/GetStatus"
+    method: GET
+    status_code: 200
+  register: _amp_target_health
+  retries: 24
+  delay: 10
+  until: _amp_target_health.status == 200
+  delegate_to: localhost
+  become: false
+
+# ─── Register target with amp-01 ADS ──────────────────────────────────────────
+# Calls RegisterTarget on this node's ADS, which connects to the main ADS and
+# registers this node as a managed target. The controller must be configured as
+# ADS.Mode=Controller before this call works.
+# Idempotent: GetInstances check skips if this node is already registered.
+
+- name: Target | Login to this node's ADS to get session token
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ amp_ads_port }}/API/Core/Login"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      username: "{{ amp_ads_admin_user }}"
+      password: "{{ _amp_admin_password.stdout | trim }}"
+      token: ""
+      rememberMe: false
+    status_code: 200
+  register: _amp_local_login
+  no_log: true
+  delegate_to: localhost
+  become: false
+
+# GetInstances must use a session on the controller (amp-01), not this node's session.
+- name: Target | Login to main ADS controller to check existing targets
+  ansible.builtin.uri:
+    url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/API/Core/Login"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      username: "{{ amp_ads_admin_user }}"
+      password: "{{ _amp_admin_password.stdout | trim }}"
+      token: ""
+      rememberMe: false
+    status_code: 200
+  register: _amp_controller_login
+  no_log: true
+  delegate_to: localhost
+  become: false
+
+- name: Target | Get existing targets from main ADS to check registration
+  ansible.builtin.uri:
+    url: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/API/ADSModule/GetInstances"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      SESSIONID: "{{ _amp_controller_login.json.sessionID }}"
+    status_code: 200
+  register: _amp_existing_targets
+  delegate_to: localhost
+  become: false
+
+# RegisterTarget is called on THIS node's ADS and tells it to register itself
+# with the controller. The controller then adds this node as a managed target.
+- name: Target | Register this node with the main ADS controller
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ amp_ads_port }}/API/ADSModule/RegisterTarget"
+    method: POST
+    headers:
+      Accept: application/json
+    body_format: json
+    body:
+      SESSIONID: "{{ _amp_local_login.json.sessionID }}"
+      controllerUrl: "http://{{ amp_ads_host }}:{{ amp_ads_port }}/"
+      myUrl: "http://{{ ansible_host }}:{{ amp_ads_port }}/"
+      username: "{{ amp_ads_admin_user }}"
+      password: "{{ _amp_admin_password.stdout | trim }}"
+      twoFactorToken: ""
+      prefix: ""
+      friendlyName: "{{ inventory_hostname }}"
+    status_code: 200
+  no_log: true
+  delegate_to: localhost
+  become: false
+  register: _amp_register_result
+  # Idempotent: skip if this node is already in the targets list (Remote: True + matching URL)
+  when: >
+    (_amp_existing_targets.json
+      | selectattr('IsRemote', 'equalto', true)
+      | selectattr('URL', 'search', ansible_host)
+      | list | length) == 0
+  failed_when: >
+    _amp_register_result.json.Status == false and
+    'already exists' not in (_amp_register_result.json.Reason | default(''))

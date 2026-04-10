@@ -19,10 +19,6 @@
   ansible.builtin.import_tasks: authentik.yml
   tags: [authentik]
 
-- name: Svc | UniFi Network Application
-  ansible.builtin.import_tasks: unifi.yml
-  tags: [unifi]
-
 - name: Svc | Homepage dashboard
   ansible.builtin.import_tasks: homepage.yml
   tags: [homepage]

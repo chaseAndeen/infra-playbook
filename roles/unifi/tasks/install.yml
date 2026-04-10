@@ -1,0 +1,53 @@
+---
+- name: UniFi | Install dependencies
+  ansible.builtin.apt:
+    name:
+      - podman
+      - uidmap
+      - slirp4netns
+      - iptables
+      - curl
+      - wget
+      - jq
+      - ca-certificates
+    state: present
+    update_cache: true
+
+- name: UniFi | Check if uosserver service exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/uosserver.service
+  register: _uosserver_unit
+
+- name: UniFi | Fetch installer URL from firmware API
+  ansible.builtin.shell: |
+    curl -fsSL "{{ unifi_firmware_api }}" \
+      | jq -r '._embedded.firmware[] | select(.platform=="linux-x64") | ._links.data.href'
+  register: _unifi_installer_url
+  changed_when: false
+  when: not _uosserver_unit.stat.exists
+
+- name: UniFi | Download installer
+  ansible.builtin.get_url:
+    url: "{{ _unifi_installer_url.stdout | trim }}"
+    dest: "{{ unifi_installer_dest }}"
+    mode: "0755"
+  when: not _uosserver_unit.stat.exists
+
+- name: UniFi | Run installer
+  ansible.builtin.shell: |
+    echo "y" | {{ unifi_installer_dest }}
+  args:
+    creates: /etc/systemd/system/uosserver.service
+  notify: Restart uosserver
+
+- name: UniFi | Remove installer binary
+  ansible.builtin.file:
+    path: "{{ unifi_installer_dest }}"
+    state: absent
+
+- name: UniFi | Enable and start uosserver
+  ansible.builtin.systemd:
+    name: uosserver
+    state: started
+    enabled: true
+    daemon_reload: true

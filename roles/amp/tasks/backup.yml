@@ -1,0 +1,62 @@
+---
+# Mount the TrueNAS NFS share for AMP game-server backups.
+#
+# UID mapping pattern (mirrors PBS NFS setup):
+#   TrueNAS mapall → amp_user (uid 2003) so every write lands as that user on
+#   TrueNAS regardless of the local OS user making the write.
+#   A local amp_backup user (uid 2003) is created as a UID anchor so the mount
+#   root shows correct ownership. The amp OS user is added to amp_backup group
+#   so game instances can write to the mount.
+#
+# Per-instance backup paths are configured in the AMP UI after instances are
+# created — point them at {{ amp_backup_nfs_mount }}/<instance-name>.
+
+- name: Backup | Install NFS client
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+
+- name: Backup | Create backup NFS group (gid matches TrueNAS amp_group)
+  ansible.builtin.group:
+    name: amp_backup
+    gid: "{{ amp_backup_gid }}"
+    state: present
+
+- name: Backup | Create backup NFS user (uid matches TrueNAS amp_user)
+  ansible.builtin.user:
+    name: amp_backup
+    uid: "{{ amp_backup_uid }}"
+    group: amp_backup
+    shell: /usr/sbin/nologin
+    create_home: false
+    comment: "AMP backup NFS UID anchor"
+    state: present
+
+- name: Backup | Add amp OS user to backup group
+  ansible.builtin.user:
+    name: amp
+    groups: amp_backup
+    append: true
+
+- name: Backup | Create NFS mount point
+  ansible.builtin.file:
+    path: "{{ amp_backup_nfs_mount }}"
+    state: directory
+    owner: amp_backup
+    group: amp_backup
+    mode: "0770"
+
+- name: Backup | Mount TrueNAS NFS backup share
+  ansible.posix.mount:
+    path: "{{ amp_backup_nfs_mount }}"
+    src: "{{ amp_backup_nfs_server }}:{{ amp_backup_nfs_export }}"
+    fstype: nfs
+    opts: "{{ amp_backup_nfs_opts }}"
+    state: mounted
+
+- name: Backup | Ensure mount point owned by backup user after mount
+  ansible.builtin.file:
+    path: "{{ amp_backup_nfs_mount }}"
+    owner: amp_backup
+    group: amp_backup
+    mode: "0770"

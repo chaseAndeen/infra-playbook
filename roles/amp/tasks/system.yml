@@ -1,0 +1,57 @@
+---
+- name: System | Install apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - apt-transport-https
+      # ampinstmgr runtime dependencies
+      - tmux
+      - socat
+      - unzip
+      - git
+      - wget
+      - xz-utils
+      - numactl
+      - bzip2
+      # .NET runtime dependencies required by AMP
+      - libicu76
+      - lib32gcc-s1
+      - lib32stdc++6
+    state: present
+    update_cache: true
+
+- name: System | Check if ampinstmgr is already installed
+  ansible.builtin.command: dpkg-query -W -f='${Status}' ampinstmgr
+  register: _ampinstmgr_installed
+  changed_when: false
+  failed_when: false
+
+- name: System | Download ampinstmgr deb
+  ansible.builtin.get_url:
+    url: https://repo.cubecoders.com/ampinstmgr-2.7.x86_64.deb
+    dest: /tmp/ampinstmgr.deb
+    mode: "0644"
+    checksum: "sha256:1ad3cde20f5b22a098bb3b94669f11a4e6422f293e0d8d5cc09c711452328463"
+  when: "'install ok installed' not in _ampinstmgr_installed.stdout"
+
+- name: System | Install ampinstmgr
+  ansible.builtin.apt:
+    deb: /tmp/ampinstmgr.deb
+    state: present
+  when: "'install ok installed' not in _ampinstmgr_installed.stdout"
+
+- name: System | Remove downloaded deb
+  ansible.builtin.file:
+    path: /tmp/ampinstmgr.deb
+    state: absent
+
+- name: System | Create amp user for AMP instance management
+  ansible.builtin.user:
+    name: amp
+    home: /home/amp
+    shell: /bin/bash
+    create_home: true
+    system: false
+    state: present

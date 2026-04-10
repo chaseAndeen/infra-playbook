@@ -1,0 +1,197 @@
+---
+# ─── Secrets from SSM ─────────────────────────────────────────────────────────
+
+- name: ADS | Fetch admin password from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "{{ amp_ssm_admin_password }}"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_admin_password
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: ADS | Fetch licence key from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "{{ amp_ssm_licence_key }}"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _amp_licence_key
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+# ─── ADS Instance ─────────────────────────────────────────────────────────────
+
+- name: ADS | Check if ADS instance already exists
+  ansible.builtin.stat:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}"
+  register: _amp_instance_dir
+
+# QuickStart must run as the amp user (not root) so that ampinstmgr calls
+# `su -l amp` when launching AMP — AMP refuses to run as root or as a
+# passwordless sudoer. The amp user has no sudo access so the check passes.
+- name: ADS | Create ADS instance via QuickStart
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr --QuickStart
+    "{{ amp_ads_admin_user }}"
+    "{{ _amp_admin_password.stdout | trim }}"
+    "{{ amp_ads_bind_ip }}"
+    {{ amp_ads_port }}
+  no_log: true
+  when: not _amp_instance_dir.stat.exists
+
+# ─── Controller Mode ───────────────────────────────────────────────────────────
+# Set ADS.Mode=Controller in ADSModule.kvp so that RegisterTarget works and
+# remote nodes can register with this ADS.
+# Security.EnablePassthruAuth=True on the controller is also required — target
+# nodes contact the controller to validate passthrough tokens, so the controller
+# must be configured to act as a passthrough auth server.
+# ADS must be stopped before editing config files to avoid conflicts.
+# Dry-run the lineinfile checks first so we only stop/start when needed.
+
+- name: ADS | Check if controller mode config needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/ADSModule.kvp"
+    regexp: '^ADS\.Mode='
+    line: 'ADS.Mode=Controller'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_ads_mode_check
+
+- name: ADS | Check if first-start config needs updating
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^AMP\.FirstStart='
+    line: 'AMP.FirstStart=False'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_first_start_check
+
+- name: ADS | Check if passthrough auth server needs enabling
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Security\.EnablePassthruAuth='
+    line: 'Security.EnablePassthruAuth=True'
+    owner: amp
+    group: amp
+  check_mode: true
+  register: _amp_ads_passthru_check
+
+- name: ADS | Stop ADS instance to apply config
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr stop {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_ads_mode_check.changed or
+    _amp_first_start_check.changed or
+    _amp_ads_passthru_check.changed
+
+- name: ADS | Set ADS controller mode in ADSModule.kvp
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/ADSModule.kvp"
+    regexp: '^ADS\.Mode='
+    line: 'ADS.Mode=Controller'
+    owner: amp
+    group: amp
+
+- name: ADS | Mark first-start complete in AMPConfig.conf
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^AMP\.FirstStart='
+    line: 'AMP.FirstStart=False'
+    owner: amp
+    group: amp
+
+- name: ADS | Enable passthrough auth server on controller
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/AMPConfig.conf"
+    regexp: '^Security\.EnablePassthruAuth='
+    line: 'Security.EnablePassthruAuth=True'
+    owner: amp
+    group: amp
+
+# Start the instance again only if it was stopped for config changes.
+# (stop/start via ampinstmgr directly because systemd RemainAfterExit keeps
+# the service "active" even when the AMP process is not running)
+- name: ADS | Start ADS instance after config changes
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr start {{ amp_ads_instance_name }}
+  changed_when: false
+  failed_when: false
+  when: >
+    _amp_ads_mode_check.changed or
+    _amp_first_start_check.changed or
+    _amp_ads_passthru_check.changed
+
+# ─── Licence Activation ───────────────────────────────────────────────────────
+# Gated on a marker file so we don't hit CubeCoders' licence server on every
+# playbook run. To force re-activation (e.g. after re-enabling a disabled key),
+# delete /home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated
+# and re-run the playbook.
+
+- name: ADS | Check if instance is already activated
+  ansible.builtin.stat:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated"
+  register: _amp_activated
+
+- name: ADS | Activate ADS instance with licence key
+  ansible.builtin.command: >
+    sudo -u amp /opt/cubecoders/amp/ampinstmgr --ReactivateInstance
+    "{{ amp_ads_instance_name }}"
+    "{{ _amp_licence_key.stdout | trim }}"
+  no_log: true
+  register: _amp_activate
+  changed_when: "'already' not in _amp_activate.stdout | default('')"
+  failed_when: >
+    _amp_activate.rc != 0 and
+    'DisabledKey' not in _amp_activate.stdout | default('')
+  when: not _amp_activated.stat.exists
+
+- name: ADS | Write activation marker
+  ansible.builtin.file:
+    path: "/home/amp/.ampdata/instances/{{ amp_ads_instance_name }}/.activated"
+    state: touch
+    mode: "0600"
+    owner: amp
+    group: amp
+    modification_time: preserve
+    access_time: preserve
+  when: >
+    not (_amp_activate is skipped) and
+    _amp_activate.rc | default(1) == 0 and
+    'DisabledKey' not in _amp_activate.stdout | default('')
+
+# ─── Service ──────────────────────────────────────────────────────────────────
+
+- name: ADS | Enable and start AMP service
+  ansible.builtin.systemd:
+    name: ampinstmgr
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: ADS | Wait for ADS web UI to become available
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:{{ amp_ads_port }}/API/Core/GetStatus"
+    method: GET
+    status_code: 200
+  register: _amp_health
+  retries: 24
+  delay: 10
+  until: _amp_health.status == 200
+  delegate_to: localhost
+  become: false

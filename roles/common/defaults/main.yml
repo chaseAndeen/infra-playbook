@@ -1,6 +1,7 @@
 ---
 # --- General ---
-proxmox_ssh_port: 2222
+# proxmox_ssh_port, proxmox_gui_port, proxmox_debian_release are set in
+# inventory/group_vars/all.yml — not duplicated here.
 proxmox_gui_port: 8006
 proxmox_debian_release: trixie
 

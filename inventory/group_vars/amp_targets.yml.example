@@ -1,0 +1,4 @@
+---
+# Firewall rules applied to amp-02 (game server worker node).
+# Extend amp_target_firewall_rules in all.yml as you add game server instances.
+amp_firewall_rules: "{{ amp_target_firewall_rules }}"

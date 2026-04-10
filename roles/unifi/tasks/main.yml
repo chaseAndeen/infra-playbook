@@ -1,0 +1,8 @@
+---
+- name: UniFi | Install UniFi OS Server
+  ansible.builtin.import_tasks: install.yml
+  tags: [install]
+
+- name: UniFi | Firewall rules
+  ansible.builtin.import_tasks: firewall.yml
+  tags: [firewall]

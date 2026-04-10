@@ -1,4 +1,6 @@
 ---
+# ─── PBS Storage Registration ──────────────────────────────────────────────────
+
 - name: PVE | Check if PBS fingerprint exists in SSM
   ansible.builtin.command: >
     aws ssm get-parameter
@@ -48,88 +50,175 @@
   when: _pbs_storage_check.rc != 0
   changed_when: true
 
-- name: PVE | Check existing backup jobs
-  ansible.builtin.command: pvesh get /cluster/backup --output-format json
-  register: _existing_backup_jobs
-  changed_when: false
-
-- name: PVE | Create daily backup job for all VMs
-  ansible.builtin.command: >
-    pvesh create /cluster/backup
-    --storage {{ pbs_storage_id }}
-    --schedule "{{ pbs_backup_schedule }}"
-    --all 1
-    --mode {{ pbs_backup_mode }}
-    --notification-mode notification-system
-    --notes-template "{{ '{{guestname}}' }}"
-    --fleecing 0
-    --repeat-missed 0
-    --enabled 1
-  register: _backup_job_create
-  changed_when: _backup_job_create.rc == 0
-  failed_when:
-    - _backup_job_create.rc != 0
-    - "'already exists' not in _backup_job_create.stderr"
-  when: >
-    _existing_backup_jobs.stdout | from_json |
-    selectattr('storage', 'equalto', pbs_storage_id) |
-    list | length == 0
-
-- name: PVE | Ensure backup job uses notification-system mode
-  vars:
-    _backup_job: >-
-      {{
-        _existing_backup_jobs.stdout | from_json |
-        selectattr('storage', 'equalto', pbs_storage_id) |
-        list | first | default({})
-      }}
-  ansible.builtin.command: >
-    pvesh set /cluster/backup/{{ _backup_job.id }}
-    --notification-mode notification-system
-  when:
-    - _backup_job | length > 0
-    - (_backup_job.get('notification-mode', '') != 'notification-system')
-  changed_when: true
+# ─── Backup Job Management ────────────────────────────────────────────────────
+# Jobs are defined in pve_backup_jobs (group_vars/all.yml).
+# Matched by comment field for idempotency — created if missing, updated if changed.
+# Retention is per-job via --prune-backups; the PBS datastore prune job is removed.
+#
+# Auto-exclusions applied to all: true jobs:
+#   - VM templates (detected dynamically)
+#   - The PBS VM itself (detected by hostname match against pbs inventory group)
+#   - Any VM targeted by an all: false job in pve_backup_jobs
 
 - name: PVE | Discover all VMs on this node
   ansible.builtin.command: pvesh get /nodes/{{ inventory_hostname }}/qemu --output-format json
   register: _pve_all_vms
   changed_when: false
 
-- name: PVE | Build backup exclusion list (templates + PBS VM)
+- name: PVE | Build VM name-to-vmid map
   ansible.builtin.set_fact:
-    pbs_exclude_vmids: >-
+    _pve_vm_map: >-
       {{
-        (
-          (_pve_all_vms.stdout | from_json |
-            selectattr('template', 'defined') |
-            selectattr('template', 'equalto', 1) |
-            map(attribute='vmid') | list)
-          +
-          (_pve_all_vms.stdout | from_json |
-            selectattr('name', 'equalto', groups['pbs'][0]) |
-            map(attribute='vmid') | list)
-        ) | map('string') | list | unique | sort
+        dict(
+          (_pve_all_vms.stdout | from_json | map(attribute='name') | list)
+          | zip(
+            _pve_all_vms.stdout | from_json | map(attribute='vmid') | map('string') | list
+          )
+        )
       }}
 
-- name: PVE | Update backup job exclusions if out of date
-  vars:
-    _backup_job: >-
+- name: PVE | Build base exclusion list (templates and PBS VM)
+  ansible.builtin.set_fact:
+    _pve_base_exclude: >-
       {{
-        _existing_backup_jobs.stdout | from_json |
-        selectattr('storage', 'equalto', pbs_storage_id) |
-        list | first | default({})
+        (
+          _pve_all_vms.stdout | from_json
+          | selectattr('template', 'defined')
+          | selectattr('template', 'equalto', 1)
+          | map(attribute='vmid') | map('string') | list
+        ) + (
+          _pve_all_vms.stdout | from_json
+          | selectattr('name', 'equalto', groups['pbs'][0])
+          | map(attribute='vmid') | map('string') | list
+        ) | unique | sort
       }}
-    _current: >-
+
+- name: PVE | Resolve VMIDs for targeted backup jobs
+  ansible.builtin.set_fact:
+    _pve_targeted_vmids: >-
       {{
-        (_backup_job.get('exclude', '') | string).split(',') |
-        reject('equalto', '') | list | sort
+        pve_backup_jobs
+        | rejectattr('all', 'equalto', true) | list
+        | map(attribute='target_groups') | flatten | unique
+        | map('extract', groups) | flatten
+        | map('extract', _pve_vm_map)
+        | select('defined')
+        | reject('equalto', none)
+        | map('string') | list | unique | sort
       }}
-    _desired: "{{ pbs_exclude_vmids | sort }}"
-  ansible.builtin.command: >
-    pvesh set /cluster/backup/{{ _backup_job.id }}
-    --exclude {{ pbs_exclude_vmids | join(',') }}
+
+- name: PVE | Get existing backup jobs
+  ansible.builtin.command: pvesh get /cluster/backup --output-format json
+  register: _pve_existing_jobs
+  changed_when: false
+
+# Build a resolved list combining desired config with runtime data (existing job,
+# computed exclude/vmid/prune strings) so create and update tasks stay readable.
+- name: PVE | Resolve per-job parameters
+  ansible.builtin.set_fact:
+    _pve_resolved_jobs: >-
+      {{
+        (_pve_resolved_jobs | default([])) + [{
+          'config': item,
+          'existing': (
+            _pve_existing_jobs.stdout | from_json
+            | selectattr('comment', 'defined')
+            | selectattr('comment', 'equalto', item.comment)
+            | list | first | default({})
+          ),
+          'exclude_arg': (
+            (_pve_base_exclude + _pve_targeted_vmids) | unique | sort | join(',')
+          ) if (item.all | default(false)) else '',
+          'vmid_arg': (
+            item.target_groups | default([])
+            | map('extract', groups) | flatten
+            | map('extract', _pve_vm_map)
+            | select('defined')
+            | reject('equalto', none)
+            | map('string') | list | unique | sort | join(',')
+          ) if not (item.all | default(false)) else '',
+          'prune_arg': (
+            (
+              (['keep-daily='   + (item.keep_daily   | string)] if (item.keep_daily   | default(0) | int) > 0 else []) +
+              (['keep-weekly='  + (item.keep_weekly  | string)] if (item.keep_weekly  | default(0) | int) > 0 else []) +
+              (['keep-monthly=' + (item.keep_monthly | string)] if (item.keep_monthly | default(0) | int) > 0 else [])
+            ) | join(',')
+          ),
+        }]
+      }}
+  loop: "{{ pve_backup_jobs }}"
+
+- name: PVE | Warn about targeted jobs with no resolved VMIDs
+  ansible.builtin.debug:
+    msg: >-
+      Skipping backup job '{{ item.config.comment }}' — no VMIDs resolved for
+      target_groups {{ item.config.target_groups | default([]) }}.
+      Ensure those hosts are deployed in PVE first.
+  loop: "{{ _pve_resolved_jobs }}"
   when:
-    - _backup_job | length > 0
-    - _current != _desired
+    - not (item.config.all | default(false))
+    - item.vmid_arg | length == 0
+
+- name: PVE | Create new backup jobs
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['pvesh', 'create', '/cluster/backup',
+         '--storage',            pbs_storage_id,
+         '--comment',            item.config.comment,
+         '--schedule',           item.config.schedule,
+         '--mode',               item.config.mode,
+         '--prune-backups',      item.prune_arg,
+         '--notification-mode',  'notification-system',
+         '--notes-template',     '{{guestname}}',
+         '--enabled',            '1']
+        + (['--all', '1'] if (item.config.all | default(false)) else ['--vmid', item.vmid_arg])
+        + (['--exclude', item.exclude_arg] if item.exclude_arg else [])
+      }}
+  loop: "{{ _pve_resolved_jobs }}"
+  when:
+    - item.existing | length == 0
+    - (item.config.all | default(false)) or item.vmid_arg | length > 0
+  changed_when: true
+
+- name: PVE | Update changed backup jobs
+  vars:
+    _ex: "{{ item.existing }}"
+    _prune_match: >-
+      {{
+        (_ex['prune-backups'] | default('') | replace(' ', ''))
+        == item.prune_arg
+      }}
+    _exclude_match: >-
+      {{
+        (_ex.exclude | default('') | string | split(',') | reject('equalto', '') | sort | join(','))
+        == (item.exclude_arg | split(',') | reject('equalto', '') | sort | join(','))
+      }}
+    _vmid_match: >-
+      {{
+        (_ex.vmid | default('') | string | split(',') | reject('equalto', '') | sort | join(','))
+        == (item.vmid_arg | split(',') | reject('equalto', '') | sort | join(','))
+      }}
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['pvesh', 'set', '/cluster/backup/' + _ex.id,
+         '--schedule',          item.config.schedule,
+         '--mode',              item.config.mode,
+         '--prune-backups',     item.prune_arg,
+         '--notification-mode', 'notification-system',
+         '--enabled',           '1']
+        + (['--all', '1'] if (item.config.all | default(false)) else ['--vmid', item.vmid_arg])
+        + (['--exclude', item.exclude_arg] if item.exclude_arg else [])
+      }}
+  loop: "{{ _pve_resolved_jobs }}"
+  when:
+    - item.existing | length > 0
+    - (item.config.all | default(false)) or item.vmid_arg | length > 0
+    - >-
+        (_ex.schedule | default('')) != item.config.schedule
+        or (_ex.mode | default('')) != item.config.mode
+        or not _prune_match
+        or not _exclude_match
+        or not _vmid_match
   changed_when: true

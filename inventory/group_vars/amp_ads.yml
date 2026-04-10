@@ -1,0 +1,2 @@
+---
+amp_firewall_rules: "{{ amp_ads_firewall_rules }}"

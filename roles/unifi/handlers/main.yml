@@ -1,0 +1,5 @@
+---
+- name: Restart uosserver
+  ansible.builtin.systemd:
+    name: uosserver
+    state: restarted

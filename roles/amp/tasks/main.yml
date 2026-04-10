@@ -1,0 +1,28 @@
+---
+- name: AMP | System packages and CubeCoders repo
+  ansible.builtin.import_tasks: system.yml
+  tags: [system]
+
+- name: AMP | Firewall rules
+  ansible.builtin.import_tasks: firewall.yml
+  tags: [firewall]
+
+- name: AMP | ADS setup
+  ansible.builtin.import_tasks: ads.yml
+  tags: [ads]
+  when: amp_node_type == 'ads'
+
+- name: AMP | Target node setup
+  ansible.builtin.import_tasks: target.yml
+  tags: [target]
+  when: amp_node_type == 'target'
+
+- name: AMP | Backup NFS mount
+  ansible.builtin.import_tasks: backup.yml
+  tags: [backup]
+  when: amp_node_type == 'target'
+
+- name: AMP | OIDC configuration
+  ansible.builtin.import_tasks: oidc.yml
+  tags: [oidc]
+  when: amp_node_type == 'ads'

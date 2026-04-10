@@ -47,3 +47,21 @@ svc:
       ansible_user: "{{ ansible_service_user }}"
       ansible_port: "{{ proxmox_ssh_port }}"
       ansible_become: true
+
+amp_ads:
+  hosts:
+    amp-01:
+      ansible_host: 192.168.20.21
+      ansible_user: "{{ ansible_service_user }}"
+      ansible_port: "{{ proxmox_ssh_port }}"
+      ansible_become: true
+      amp_node_type: ads
+
+amp_targets:
+  hosts:
+    amp-02:
+      ansible_host: 192.168.20.22
+      ansible_user: "{{ ansible_service_user }}"
+      ansible_port: "{{ proxmox_ssh_port }}"
+      ansible_become: true
+      amp_node_type: target
