@@ -83,6 +83,25 @@ services:
     networks:
       - authentik-internal
 
+  authentik-ldap:
+    image: ghcr.io/goauthentik/ldap:{{ svc_authentik_version }}
+    container_name: authentik-ldap
+    restart: unless-stopped
+    environment:
+      AUTHENTIK_HOST: "https://{{ svc_authentik_domain }}"
+      AUTHENTIK_INSECURE: "false"
+      # Substituted from .env at container start — populated by svc.yml after
+      # the ldap blueprint runs and the outpost token is stored in SSM.
+      AUTHENTIK_TOKEN: "${LDAP_OUTPOST_TOKEN}"
+    env_file:
+      - .env
+    ports:
+      - "636:6636"
+    networks:
+      - proxy
+    depends_on:
+      - authentik-server
+
 networks:
   authentik-internal:
     driver: bridge

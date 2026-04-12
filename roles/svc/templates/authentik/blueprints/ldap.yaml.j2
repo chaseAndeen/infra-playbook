@@ -1,0 +1,79 @@
+version: 1
+metadata:
+  name: ldap
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  # =========================================================
+  # TrueNAS LDAP bind service account
+  # Password must match /infra/svc/ldap/bind_password in SSM.
+  # TrueNAS sends this as bindpw; the LDAP outpost validates it
+  # against this user's stored password.
+  # =========================================================
+  - model: authentik_core.user
+    state: present
+    identifiers:
+      username: "truenas-ldap-svc"
+    attrs:
+      username: "truenas-ldap-svc"
+      name: "TrueNAS LDAP Service Account"
+      email: "truenas-ldap-svc@{{ base_domain }}"
+      is_active: true
+      type: service_account
+      password: "{{ ldap_bind_password }}"
+
+  # =========================================================
+  # LDAP provider
+  # Uses the Authentik self-signed cert for LDAPS on port 636.
+  # validate_certificates: false on TrueNAS side — encrypted
+  # but no hostname validation needed for internal use.
+  # =========================================================
+  - model: authentik_providers_ldap.ldapprovider
+    state: present
+    identifiers:
+      name: "truenas-ldap"
+    attrs:
+      name: "truenas-ldap"
+      base_dn: "DC=ldap,DC=goauthentik,DC=io"
+      certificate: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      search_mode: direct
+      mfa_support: false
+      # Start well above service account UIDs (e.g. pbs_user uid 2000).
+      uid_start_number: 10000
+      gid_start_number: 10000
+
+  # =========================================================
+  # Application (Authentik requires an application per provider)
+  # =========================================================
+  - model: authentik_core.application
+    state: present
+    identifiers:
+      slug: "truenas-ldap"
+    attrs:
+      name: "TrueNAS LDAP"
+      slug: "truenas-ldap"
+      provider: !Find [authentik_providers_ldap.ldapprovider, [name, truenas-ldap]]
+
+  # =========================================================
+  # LDAP outpost
+  # Authentik auto-creates a service account token for this
+  # outpost (identifier: ak-outpost-truenas-ldap-outpost).
+  # svc.yml fetches that token and stores it in SSM, then
+  # restarts the authentik-ldap container.
+  # =========================================================
+  - model: authentik_outposts.outpost
+    state: present
+    identifiers:
+      name: "truenas-ldap-outpost"
+    attrs:
+      name: "truenas-ldap-outpost"
+      type: ldap
+      providers:
+        - !Find [authentik_providers_ldap.ldapprovider, [name, truenas-ldap]]
+      config:
+        authentik_host: "https://{{ svc_authentik_domain }}"
+        authentik_host_insecure: false
+        log_level: info
+        object_naming_template: "ak-outpost-%(name)s"

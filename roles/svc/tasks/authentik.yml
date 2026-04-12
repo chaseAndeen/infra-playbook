@@ -77,6 +77,32 @@
   delegate_to: localhost
   when: _authentik_bootstrap_token is failed
 
+- name: Authentik | Check for existing LDAP bind password in SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/ldap/bind_password"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _ldap_bind_password_check
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+
+- name: Authentik | Generate and store LDAP bind password in SSM
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/ldap/bind_password"
+    --type SecureString
+    --value "{{ lookup('ansible.builtin.pipe', 'openssl rand -base64 32') | trim }}"
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _ldap_bind_password_check is failed
+
 - name: Authentik | Check for existing OIDC client secret in SSM
   ansible.builtin.command: >
     aws ssm get-parameter
@@ -139,6 +165,15 @@
     mode: "0644"
   notify: Restart authentik
 
+- name: Authentik | Template LDAP blueprint
+  ansible.builtin.template:
+    src: authentik/blueprints/ldap.yaml.j2
+    dest: "{{ svc_compose_dir }}/authentik/blueprints/ldap.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart authentik
+
 - name: Authentik | Template environment file
   ansible.builtin.template:
     src: authentik/.env.j2
@@ -184,7 +219,7 @@
     status_code: 200
   register: _authentik_api_ready
   retries: 30
-  delay: 5
+  delay: 10
   until: _authentik_api_ready.status == 200
   delegate_to: localhost
   become: false
@@ -265,3 +300,150 @@
   delegate_to: localhost
   become: false
   when: _blueprint_applied_hash != _blueprint_file_hash
+
+# ─── LDAP blueprint lifecycle ─────────────────────────────────────────────────
+
+- name: Authentik | Check if ldap blueprint instance exists
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/?search=ldap"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _ldap_blueprint_list
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Register ldap blueprint instance
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      name: "ldap"
+      path: "custom/ldap.yaml"
+      enabled: true
+      context: {}
+    status_code: [200, 201]
+  register: _ldap_blueprint_create
+  delegate_to: localhost
+  become: false
+  when: >
+    _ldap_blueprint_list.json.pagination.count | int == 0 or
+    (_ldap_blueprint_list.json.results | selectattr('name', 'equalto', 'ldap') | list | length) == 0
+
+- name: Authentik | Set LDAP blueprint management facts
+  ansible.builtin.set_fact:
+    _ldap_blueprint_pk: >-
+      {{
+        (_ldap_blueprint_list.json.results | selectattr('name', 'equalto', 'ldap') | list | first).pk
+        if (_ldap_blueprint_list.json.results | selectattr('name', 'equalto', 'ldap') | list | length) > 0
+        else _ldap_blueprint_create.json.pk
+      }}
+    _ldap_blueprint_file_hash: >-
+      {{
+        (_blueprints_available.json
+          | selectattr('path', 'equalto', 'custom/ldap.yaml')
+          | list | first).hash
+      }}
+    _ldap_blueprint_applied_hash: >-
+      {{
+        (_ldap_blueprint_list.json.results | selectattr('name', 'equalto', 'ldap') | list | first).last_applied_hash
+        if (_ldap_blueprint_list.json.results | selectattr('name', 'equalto', 'ldap') | list | length) > 0
+        else ''
+      }}
+
+- name: Authentik | Apply LDAP blueprint if file changed or not yet applied
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/{{ _ldap_blueprint_pk }}/apply/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _ldap_blueprint_apply
+  failed_when: _ldap_blueprint_apply.json.status != 'successful'
+  delegate_to: localhost
+  become: false
+  when: _ldap_blueprint_applied_hash != _ldap_blueprint_file_hash
+
+# ─── LDAP outpost token — sync Authentik → SSM → container ───────────────────
+# Authentik is the authoritative source. We always fetch the current token and
+# compare it against SSM. If they differ (first run, fresh Authentik install,
+# or manual token rotation), SSM is updated and the container is restarted.
+# No manual SSM cleanup is needed between environment rebuilds.
+
+- name: Authentik | Fetch LDAP outpost token metadata
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/tokens/?identifier=ak-outpost-truenas-ldap-outpost"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _ldap_outpost_token_meta
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Fetch LDAP outpost token key from Authentik
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/tokens/{{ (_ldap_outpost_token_meta.json.results | first).pk }}/view_key/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _ldap_outpost_token_key
+  no_log: true
+  delegate_to: localhost
+  become: false
+  when: _ldap_outpost_token_meta.json.pagination.count | int > 0
+
+- name: Authentik | Read current LDAP outpost token from SSM
+  ansible.builtin.command: >
+    aws ssm get-parameter
+    --name "/infra/svc/ldap/outpost_token"
+    --with-decryption
+    --query "Parameter.Value"
+    --output text
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  register: _ldap_outpost_token_ssm
+  ignore_errors: true
+  changed_when: false
+  no_log: true
+  become: false
+  delegate_to: localhost
+  when: _ldap_outpost_token_key is not skipped
+
+- name: Authentik | Update LDAP outpost token in SSM if changed
+  ansible.builtin.command: >
+    aws ssm put-parameter
+    --name "/infra/svc/ldap/outpost_token"
+    --type SecureString
+    --value "{{ _ldap_outpost_token_key.json.key }}"
+    --overwrite
+    --profile "{{ aws_profile }}"
+    --region "{{ aws_region }}"
+  no_log: true
+  become: false
+  delegate_to: localhost
+  register: _ldap_token_updated
+  when:
+    - _ldap_outpost_token_key is not skipped
+    - _ldap_outpost_token_ssm is failed or
+      _ldap_outpost_token_ssm.stdout | trim != _ldap_outpost_token_key.json.key
+
+- name: Authentik | Re-template .env with updated LDAP outpost token
+  ansible.builtin.template:
+    src: authentik/.env.j2
+    dest: "{{ svc_compose_dir }}/authentik/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: _ldap_token_updated is changed
+
+- name: Authentik | Restart LDAP outpost container with updated token
+  ansible.builtin.command: docker compose up -d --force-recreate authentik-ldap
+  args:
+    chdir: "{{ svc_compose_dir }}/authentik"
+  when: _ldap_token_updated is changed
+  changed_when: true
