@@ -1,28 +1,28 @@
 ---
-- name: AMP | System packages and CubeCoders repo
-  ansible.builtin.import_tasks: system.yml
-  tags: [system]
+- name: AMP | Install
+  ansible.builtin.import_tasks: install.yml
+  tags: [install]
 
-- name: AMP | Firewall rules
+- name: AMP | Firewall
   ansible.builtin.import_tasks: firewall.yml
   tags: [firewall]
 
-- name: AMP | ADS setup
-  ansible.builtin.import_tasks: ads.yml
-  tags: [ads]
-  when: amp_node_type == 'ads'
+- name: AMP | Configure ADS controller
+  ansible.builtin.import_tasks: configure_ads.yml
+  when: inventory_hostname in groups['amp_ads']
+  tags: [configure]
 
-- name: AMP | Target node setup
-  ansible.builtin.import_tasks: target.yml
-  tags: [target]
-  when: amp_node_type == 'target'
+- name: AMP | Configure target node
+  ansible.builtin.import_tasks: configure_target.yml
+  when: inventory_hostname in groups['amp_targets']
+  tags: [configure]
 
-- name: AMP | Backup NFS mount
-  ansible.builtin.import_tasks: backup.yml
-  tags: [backup]
-  when: amp_node_type == 'target'
-
-- name: AMP | OIDC configuration
+- name: AMP | Configure OIDC
   ansible.builtin.import_tasks: oidc.yml
+  when: inventory_hostname in groups['amp_ads']
   tags: [oidc]
-  when: amp_node_type == 'ads'
+
+- name: AMP | Mount NFS game data
+  ansible.builtin.import_tasks: nfs_mount.yml
+  when: inventory_hostname in groups['amp_targets']
+  tags: [nfs]

@@ -1,0 +1,104 @@
+---
+- name: ADS | Stop ADS01
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr stop ADS01'"
+  failed_when: false
+  changed_when: true
+
+- name: ADS | Enable passthru auth
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Security[.]EnablePassthruAuth="
+    line: "Security.EnablePassthruAuth=True"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: ADS | Enable login fallback
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Login[.]AllowLoginFallback="
+    line: "Login.AllowLoginFallback=True"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: ADS | Set mode to Controller
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/ADSModule.kvp"
+    regexp: "^ADS[.]Mode="
+    line: "ADS.Mode=Controller"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: ADS | Set controller URL
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/ADSModule.kvp"
+    regexp: "^ADS[.]ControllerUrl="
+    line: "ADS.ControllerUrl=http://{{ ansible_host }}:{{ amp_ads_port }}/"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: ADS | Run repairauth
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr -magic controller http://{{ ansible_host }}:{{ amp_ads_port }}/'"
+  changed_when: true
+
+- name: ADS | Start ADS01
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr start ADS01'"
+  changed_when: true
+
+- name: ADS | Wait for ADS to be ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ amp_ads_port }}"
+    delay: 5
+    timeout: 120
+    state: started
+
+- name: ADS | Fetch licence key from SSM
+  ansible.builtin.set_fact:
+    _amp_licence_key: "{{ lookup('amazon.aws.ssm_parameter', amp_ssm_licence_key, profile=aws_profile, region=aws_region) }}"
+  no_log: true
+
+- name: ADS | Activate AMP licence via CLI
+  ansible.builtin.shell:
+    cmd: "su -l amp -c 'cd ~/.ampdata/instances/ADS01 && /opt/cubecoders/amp/ampinstmgr reactivate ADS01 {{ _amp_licence_key }}'"
+  register: _amp_licence_result
+  changed_when: true
+
+- name: ADS | Debug - Print licence activation result
+  ansible.builtin.debug:
+    msg: "Licence activation result: {{ _amp_licence_result.stdout_lines | default([]) }}"
+
+- name: ADS | Restart ADS after licence activation
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr restart ADS01'"
+  changed_when: true
+
+- name: ADS | Wait for ADS to be ready after licence activation
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ amp_ads_port }}"
+    delay: 10
+    timeout: 120
+    state: started
+
+- name: ADS | Verify licence status
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr ADS01 ShowInstanceInfo' 2>&1 | grep -i licence"
+  register: _amp_license_status
+  changed_when: false
+  failed_when: false
+
+- name: ADS | Debug - Print final licence status
+  ansible.builtin.debug:
+    msg: "Licence status: {{ _amp_license_status.stdout | default('unknown') }}"
+

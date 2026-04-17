@@ -43,6 +43,12 @@
     group: "{{ pbs_nfs_group }}"
     mode: "0750"
 
+- name: PBS | Initialise datastore chunk store directory
+  ansible.builtin.file:
+    path: "{{ pbs_datastore_path }}/.chunks"
+    state: directory
+    mode: "0755"
+
 - name: PBS | Write datastore config
   ansible.builtin.template:
     src: datastore.cfg.j2
@@ -52,9 +58,6 @@
     mode: "0640"
   notify: Restart proxmox-backup
 
-# Retention is now managed by PVE backup job --prune-backups flags, not a
-# PBS-side prune job. Remove prune.cfg so PBS doesn't apply a conflicting
-# global retention policy over the per-job settings.
 - name: PBS | Remove legacy prune.cfg (retention managed by PVE backup jobs)
   ansible.builtin.file:
     path: /etc/proxmox-backup/prune.cfg

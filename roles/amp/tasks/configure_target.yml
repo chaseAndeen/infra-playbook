@@ -1,0 +1,84 @@
+---
+- name: Target | Stop ADS01
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr stop ADS01'"
+  failed_when: false
+  changed_when: true
+
+- name: Target | Set mode to Target
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/ADSModule.kvp"
+    regexp: "^ADS[.]Mode="
+    line: "ADS.Mode=Target"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Enable local admin login
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Security[.]AllowLocalLogin="
+    line: "Security.AllowLocalLogin=True"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Enable passthru auth
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Security[.]EnablePassthruAuth="
+    line: "Security.EnablePassthruAuth=True"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Enable auth server
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Login[.]UseAuthServer="
+    line: "Login.UseAuthServer=True"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Set auth server URL
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Login[.]AuthServerURL="
+    line: "Login.AuthServerURL=http://{{ hostvars[groups['amp_ads'][0]].ansible_host }}:{{ amp_ads_port }}/"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Disable login fallback
+  ansible.builtin.lineinfile:
+    path: "/home/amp/.ampdata/instances/ADS01/AMPConfig.conf"
+    regexp: "^Login[.]AllowLoginFallback="
+    line: "Login.AllowLoginFallback=False"
+    create: true
+    owner: amp
+    group: amp
+    mode: "0644"
+
+- name: Target | Run repairauth
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr -magic target http://{{ hostvars[groups['amp_ads'][0]].ansible_host }}:{{ amp_ads_port }}/'"
+  changed_when: true
+
+- name: Target | Start ADS01
+  ansible.builtin.shell:
+    cmd: "su -l amp -c '/opt/cubecoders/amp/ampinstmgr start ADS01'"
+  changed_when: true
+
+- name: Target | Wait for ADS to be ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ amp_ads_port }}"
+    delay: 5
+    timeout: 120
+    state: started

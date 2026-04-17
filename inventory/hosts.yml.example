@@ -55,7 +55,6 @@ amp_ads:
       ansible_user: "{{ ansible_service_user }}"
       ansible_port: "{{ proxmox_ssh_port }}"
       ansible_become: true
-      amp_node_type: ads
 
 amp_targets:
   hosts:
@@ -64,4 +63,3 @@ amp_targets:
       ansible_user: "{{ ansible_service_user }}"
       ansible_port: "{{ proxmox_ssh_port }}"
       ansible_become: true
-      amp_node_type: target

@@ -1,11 +1,4 @@
 ---
-# Run order matters: ADS must be up before the target play registers against it.
-#
-# Full deploy:   ansible-playbook playbooks/amp.yml
-# ADS only:      ansible-playbook playbooks/amp.yml --limit amp_ads
-# Target only:   ansible-playbook playbooks/amp.yml --limit amp_targets
-# Specific tags: ansible-playbook playbooks/amp.yml --tags system,ads
-
 - name: AMP Management Node (ADS controller)
   hosts: amp_ads
   become: true

@@ -165,6 +165,48 @@
     mode: "0644"
   notify: Restart authentik
 
+- name: Authentik | Template amp-groups blueprint
+  ansible.builtin.template:
+    src: authentik/blueprints/amp-groups.yml.j2
+    dest: "{{ svc_compose_dir }}/authentik/blueprints/amp-groups.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart authentik
+
+# ─── OIDC Groups Scope Mapping ────────────────────────────────────────────────
+# Ensure the 'groups' scope mapping exists for OAuth2 providers.
+# This is required for AMP group-based role mapping to work.
+
+- name: Authentik | Check if groups scope mapping exists
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/propertymappings/provider/scope/?search=groups"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _groups_scope_check
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Create groups scope mapping
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/propertymappings/provider/scope/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      name: "groups"
+      scope_name: "groups"
+      expression: |-
+        claim = user.ak_groups.all().values_list('name', flat=True)
+        return list(claim)
+    status_code: [200, 201]
+  register: _groups_scope_create
+  delegate_to: localhost
+  become: false
+  when: _groups_scope_check.json.pagination.count | int == 0
+
 - name: Authentik | Template LDAP blueprint
   ansible.builtin.template:
     src: authentik/blueprints/ldap.yaml.j2
@@ -367,6 +409,72 @@
   become: false
   when: _ldap_blueprint_applied_hash != _ldap_blueprint_file_hash
 
+# ─── amp-groups blueprint lifecycle ──────────────────────────────────────────
+
+- name: Authentik | Check if amp-groups blueprint instance exists
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/?search=amp-groups"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_groups_blueprint_list
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Register amp-groups blueprint instance
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      name: "amp-groups"
+      path: "custom/amp-groups.yaml"
+      enabled: true
+      context: {}
+    status_code: [200, 201]
+  register: _amp_groups_blueprint_create
+  delegate_to: localhost
+  become: false
+  when: >
+    _amp_groups_blueprint_list.json.pagination.count | int == 0 or
+    (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | length) == 0
+
+- name: Authentik | Set amp-groups blueprint management facts
+  ansible.builtin.set_fact:
+    _amp_groups_blueprint_pk: >-
+      {{
+        (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | first).pk
+        if (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | length) > 0
+        else _amp_groups_blueprint_create.json.pk
+      }}
+    _amp_groups_blueprint_file_hash: >-
+      {{
+        (_blueprints_available.json
+          | selectattr('path', 'equalto', 'custom/amp-groups.yaml')
+          | list | first).hash
+      }}
+    _amp_groups_blueprint_applied_hash: >-
+      {{
+        (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | first).last_applied_hash
+        if (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | length) > 0
+        else ''
+      }}
+
+- name: Authentik | Apply amp-groups blueprint if file changed or not yet applied
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/{{ _amp_groups_blueprint_pk }}/apply/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_groups_blueprint_apply
+  failed_when: _amp_groups_blueprint_apply.json.status != 'successful'
+  delegate_to: localhost
+  become: false
+  when: _amp_groups_blueprint_applied_hash != _amp_groups_blueprint_file_hash
+
 # ─── LDAP outpost token — sync Authentik → SSM → container ───────────────────
 # Authentik is the authoritative source. We always fetch the current token and
 # compare it against SSM. If they differ (first run, fresh Authentik install,
@@ -447,3 +555,130 @@
     chdir: "{{ svc_compose_dir }}/authentik"
   when: _ldap_token_updated is changed
   changed_when: true
+
+# ─── AMP groups blueprint lifecycle ────────────────────────────────────────────
+
+- name: Authentik | Template AMP groups blueprint
+  ansible.builtin.template:
+    src: authentik/blueprints/amp-groups.yml.j2
+    dest: "{{ svc_compose_dir }}/authentik/blueprints/amp-groups.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart authentik
+
+- name: Authentik | Check if AMP groups blueprint instance exists
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/?search=amp-groups"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_groups_blueprint_list
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Register AMP groups blueprint instance
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      name: "amp-groups"
+      path: "custom/amp-groups.yaml"
+      enabled: true
+      context: {}
+    status_code: [200, 201]
+  register: _amp_groups_blueprint_create
+  delegate_to: localhost
+  become: false
+  when: _amp_groups_blueprint_list.json.pagination.count | int == 0
+
+- name: Authentik | Set AMP groups blueprint PK
+  ansible.builtin.set_fact:
+    _amp_groups_blueprint_pk: >-
+      {{
+        (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | first).pk
+        if (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | length) > 0
+        else _amp_groups_blueprint_create.json.pk
+      }}
+
+- name: Authentik | Get available blueprints hash
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/available/"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_blueprints_available
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Set AMP groups blueprint hash facts
+  ansible.builtin.set_fact:
+    _amp_groups_file_hash: >-
+      {{
+        (_amp_blueprints_available.json
+          | selectattr('path', 'equalto', 'custom/amp-groups.yaml')
+          | list | first).hash
+      }}
+    _amp_groups_applied_hash: >-
+      {{
+        (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | first).last_applied_hash
+        if (_amp_groups_blueprint_list.json.results | selectattr('name', 'equalto', 'amp-groups') | list | length) > 0
+        else ''
+      }}
+
+- name: Authentik | Apply AMP groups blueprint if changed
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/managed/blueprints/{{ _amp_groups_blueprint_pk }}/apply/"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_groups_apply
+  failed_when: _amp_groups_apply.json.status != 'successful'
+  delegate_to: localhost
+  become: false
+  when: _amp_groups_applied_hash != _amp_groups_file_hash
+
+# ─── Add amp_oidc_admins to AMP_Super Admins group ─────────────────────────────
+
+- name: Authentik | Get AMP_Super Admins group PK
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/groups/?name={{ amp_oidc_superadmin_group | urlencode }}"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_superadmin_group
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Get PKs for amp_oidc_admins users
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/users/?username={{ item }}"
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    status_code: 200
+  register: _amp_admin_users
+  loop: "{{ amp_oidc_admins }}"
+  delegate_to: localhost
+  become: false
+
+- name: Authentik | Add amp_oidc_admins to AMP_Super Admins group
+  ansible.builtin.uri:
+    url: "https://{{ svc_authentik_domain }}/api/v3/core/users/{{ item.json.results[0].pk }}/"
+    method: PATCH
+    headers:
+      Authorization: "Bearer {{ authentik_bootstrap_token }}"
+    body_format: json
+    body:
+      groups: "{{ item.json.results[0].groups + [_amp_superadmin_group.json.results[0].pk] }}"
+    status_code: [200, 201]
+  loop: "{{ _amp_admin_users.results }}"
+  when:
+    - (_amp_superadmin_group.json.pagination.count | int) > 0
+    - (item.json.pagination.count | int) > 0
+    - (_amp_superadmin_group.json.results[0].pk | string) not in (item.json.results[0].groups | map('string') | list)
+  delegate_to: localhost
+  become: false

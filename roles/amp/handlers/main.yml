@@ -1,9 +1,1 @@
 ---
-- name: Reload systemd
-  ansible.builtin.systemd:
-    daemon_reload: true
-
-- name: Restart amp ads
-  ansible.builtin.systemd:
-    name: ampinstmgr
-    state: restarted

@@ -1,0 +1,19 @@
+version: 1
+metadata:
+  name: amp-groups
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  - model: authentik_core.group
+    state: present
+    identifiers:
+      name: "{{ amp_oidc_superadmin_group }}"
+    attrs:
+      name: "{{ amp_oidc_superadmin_group }}"
+
+  - model: authentik_core.group
+    state: present
+    identifiers:
+      name: "{{ amp_oidc_user_group }}"
+    attrs:
+      name: "{{ amp_oidc_user_group }}"

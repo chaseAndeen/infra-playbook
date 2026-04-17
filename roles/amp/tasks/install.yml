@@ -1,0 +1,42 @@
+---
+- name: AMP | Check if AMP is installed
+  ansible.builtin.stat:
+    path: "/opt/cubecoders/amp/ampinstmgr"
+  register: _amp_binary
+
+- name: AMP | Fetch install credentials from SSM
+  ansible.builtin.set_fact:
+    _amp_admin_password: "{{ lookup('amazon.aws.ssm_parameter', amp_ssm_admin_password, profile=aws_profile, region=aws_region) }}"
+    _amp_sys_password: "{{ lookup('amazon.aws.ssm_parameter', amp_ssm_sys_password, profile=aws_profile, region=aws_region) }}"
+    _amp_licence_key: "{{ lookup('amazon.aws.ssm_parameter', amp_ssm_licence_key, profile=aws_profile, region=aws_region) }}"
+  no_log: true
+  when: not _amp_binary.stat.exists
+
+- name: AMP | Run GetAMP installation
+  ansible.builtin.shell:
+    cmd: |
+      export USE_ANSWERS="y"
+      export ANSWER_AMPUSER="{{ amp_ads_admin_user }}"
+      export ANSWER_AMPPASS="{{ _amp_admin_password }}"
+      export ANSWER_SYSPASSWORD="{{ _amp_sys_password }}"
+      export ANSWER_INSTALLDOCKER="y"
+      export ANSWER_INSTALLSRCDSLIBS="y"
+      export ANSWER_CREATEDEFAULT="n"
+      bash <(wget -qO- https://cubecoders.com/getamp.sh) >/var/log/getamp.log 2>&1
+    executable: /bin/bash
+  async: 1800
+  poll: 0
+  when: not _amp_binary.stat.exists
+
+- name: AMP | Wait for AMP binary
+  ansible.builtin.wait_for:
+    path: /opt/cubecoders/amp/ampinstmgr
+    timeout: 600
+
+- name: AMP | Wait for ADS to be ready
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ amp_ads_port }}"
+    delay: 5
+    timeout: 300
+    state: started

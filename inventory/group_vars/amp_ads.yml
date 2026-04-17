@@ -1,2 +1,3 @@
 ---
 amp_firewall_rules: "{{ amp_ads_firewall_rules }}"
+amp_ssm_oidc_client_secret: "/infra/svc/oidc/amp/client_secret"
